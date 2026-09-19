@@ -70,7 +70,8 @@ def fetch_data(ticker_symbol, interval_str, lookback_str):
                     'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'
                 }, inplace=True)
                 for col in ['Open', 'High', 'Low', 'Close']:
-                    df[col] = df[col].astype(float)
+                    if col in df.columns:
+                        df[col] = df[col].astype(float)
                 feed_source = "Twelve Data (24/7 Cloud Feed)"
         except Exception as e:
             notice = f"Twelve Data Feed fallback activated: {e}"
@@ -91,7 +92,7 @@ def fetch_data(ticker_symbol, interval_str, lookback_str):
 
     return df, feed_source, notice
 
-# --- 4H RESAMPLER FOR CLOSED-BAR DIAGNOSTICS (BULLETPROOF TIMEDELTA/LOWERCASE FIX) ---
+# --- 4H RESAMPLER FOR CLOSED-BAR DIAGNOSTICS (SAFE AGGREGATION DICT) ---
 def get_4h_closed_data(df):
     """Resamples input data to 4-Hour bars and returns fully completed/closed bars only."""
     if df.empty:
@@ -102,22 +103,20 @@ def get_4h_closed_data(df):
         df.index = pd.to_datetime(df.index)
     df = df.sort_index()
     
+    agg_dict = {}
+    if 'Open' in df.columns: agg_dict['Open'] = 'first'
+    if 'High' in df.columns: agg_dict['High'] = 'max'
+    if 'Low' in df.columns: agg_dict['Low'] = 'min'
+    if 'Close' in df.columns: agg_dict['Close'] = 'last'
+    if 'Volume' in df.columns: 
+        agg_dict['Volume'] = 'sum'
+    elif 'volume' in df.columns: 
+        agg_dict['volume'] = 'sum'
+
     try:
-        df_4h = df.resample('4h').agg({
-            'Open': 'first',
-            'High': 'max',
-            'Low': 'min',
-            'Close': 'last',
-            'Volume': 'sum' if 'Volume' in df.columns else 'first'
-        }).dropna()
+        df_4h = df.resample('4h').agg(agg_dict).dropna()
     except Exception:
-        df_4h = df.groupby(pd.Grouper(freq='4h')).agg({
-            'Open': 'first',
-            'High': 'max',
-            'Low': 'min',
-            'Close': 'last',
-            'Volume': 'sum' if 'Volume' in df.columns else 'first'
-        }).dropna()
+        df_4h = df.groupby(pd.Grouper(freq='4h')).agg(agg_dict).dropna()
 
     # Drop the currently active/unclosed bar to freeze analysis on closed 4H candles
     if len(df_4h) > 1:
@@ -218,6 +217,8 @@ def run_pca(df, n_components=2):
 
     if 'Volume' in df.columns and df['Volume'].notna().sum() > 0 and (df['Volume'] != 0).any():
         vol_feature = df['Volume']
+    elif 'volume' in df.columns and df['volume'].notna().sum() > 0 and (df['volume'] != 0).any():
+        vol_feature = df['volume']
     else:
         vol_feature = df['High'] - df['Low']
 

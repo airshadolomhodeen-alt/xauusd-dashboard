@@ -490,13 +490,14 @@ if not df.empty:
         auc_4h_score = 0.50
         last_4h_time = "N/A"
 
-    # --- TOP SUMMARY METRIC BAR (MOBILE AUTO-STACKS COLUMNS) ---
-    m1, m2, m3, m4, m5 = st.columns(5)
+    # --- TOP SUMMARY METRIC BAR (INCLUDING MODEL ROC-AUC SCORE) ---
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Spot Price", f"${current_price:.2f}")
     m2.metric("24h Vol.", f"{current_vol*100:.2f}%")
     m3.metric("Model Bias", f"{bullish_p_4h:.1f}% Bull")
-    m4.metric("Regime", structure_4h.split('/')[0])
-    m5.metric("4H Sync", "OK 🟢")
+    m4.metric("4H ROC-AUC", f"{auc_4h_score:.3f}")
+    m5.metric("Regime", structure_4h.split('/')[0])
+    m6.metric("4H Sync", "OK 🟢")
 
     st.markdown("---")
 
@@ -508,15 +509,15 @@ if not df.empty:
 
     if bullish_p_4h > 60:
         verdict_action = "HIGH-PROBABILITY BUY (LONG ENTRY)"
-        verdict_desc = "The 4-hour closed candle model confirms statistical and structural upward alignment."
+        verdict_desc = f"The 4-hour closed candle model confirms statistical and structural upward alignment (Model ROC-AUC Score: <code>{auc_4h_score:.3f}</code>)."
         verdict_color = "#00E5FF"
     elif bearish_p_4h > 60:
         verdict_action = "HIGH-PROBABILITY SELL (SHORT ENTRY)"
-        verdict_desc = "The 4-hour closed candle model confirms downside distribution pressure."
+        verdict_desc = f"The 4-hour closed candle model confirms downside distribution pressure (Model ROC-AUC Score: <code>{auc_4h_score:.3f}</code>)."
         verdict_color = "#FF4081"
     else:
         verdict_action = "STAND ASIDE / NEUTRAL"
-        verdict_desc = f"Market equilibrium detected ({bullish_p_4h:.1f}% Bullish vs {bearish_p_4h:.1f}% Bearish). Capital preservation advised."
+        verdict_desc = f"Market equilibrium detected ({bullish_p_4h:.1f}% Bullish vs {bearish_p_4h:.1f}% Bearish | Model ROC-AUC Score: <code>{auc_4h_score:.3f}</code>). Capital preservation advised."
         verdict_color = "#FFD700"
 
     st.markdown(f"""
@@ -546,7 +547,7 @@ if not df.empty:
 
     st.markdown("---")
 
-    # --- REAL-TIME TRADINGVIEW CHARTS (RESPONSIVE HEIGHT FOR PHONES) ---
+    # --- REAL-TIME TRADINGVIEW CHARTS ---
     st.subheader("Real-Time Multi-Asset Charts (XAU/USD vs. DXY)")
     tv_tf_map = {"5m": "5", "15m": "15", "1hr": "60", "4hr": "240", "1d": "D", "1w": "W"}
     tv_interval = tv_tf_map.get(interval, "15")
@@ -639,7 +640,7 @@ if not df.empty:
     except Exception as e:
         st.warning(f"Unable to render correlation heatmap: {e}")
 
-    # --- ANALYTICAL MODULES 2x2 GRID (AUTO-STACKS ON MOBILE) ---
+    # --- ANALYTICAL MODULES 2x2 GRID ---
     row1_col1, row1_col2 = st.columns(2)
 
     # MODULE 1: SARIMA FORECAST

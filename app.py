@@ -91,6 +91,26 @@ def fetch_data(ticker_symbol, interval_str, lookback_str):
 
     return df, feed_source, notice
 
+# --- 4H RESAMPLER FOR CLOSED-BAR DIAGNOSTICS ---
+def get_4h_closed_data(df):
+    """Resamples input data to 4-Hour bars and returns fully completed/closed bars only."""
+    if df.empty:
+        return df
+    
+    # Resample to 4H boundaries
+    df_4h = df.resample('4h').agg({
+        'Open': 'first',
+        'High': 'max',
+        'Low': 'min',
+        'Close': 'last',
+        'Volume': 'sum' if 'Volume' in df.columns else 'first'
+    }).dropna()
+
+    # Drop the currently active/unclosed bar to freeze analysis on closed 4H candles
+    if len(df_4h) > 1:
+        return df_4h.iloc[:-1]
+    return df_4h
+
 # --- ENHANCED MACRO CORRELATION ENGINE ---
 @st.cache_data(ttl=300)
 def fetch_macro_correlation(period_str):
@@ -137,10 +157,11 @@ def detect_smart_money_patterns(df):
             })
             
     recent_closes = df['Close'].iloc[-10:]
-    if recent_closes.iloc[-1] > recent_closes.max() * 0.999:
-        market_structure = "Bullish Market Structure Shift (MSS) / Break of Structure"
-    elif recent_closes.iloc[-1] < recent_closes.min() * 1.001:
-        market_structure = "Bearish Change of Character (ChoCH)"
+    if len(recent_closes) > 0:
+        if recent_closes.iloc[-1] > recent_closes.max() * 0.999:
+            market_structure = "Bullish Market Structure Shift (MSS) / Break of Structure"
+        elif recent_closes.iloc[-1] < recent_closes.min() * 1.001:
+            market_structure = "Bearish Change of Character (ChoCH)"
 
     return fvgs, market_structure
 
@@ -294,9 +315,22 @@ if not df.empty:
     current_price = float(df['Close'].iloc[-1])
     rolling_vol_calc = df['Close'].pct_change().rolling(21).std() * np.sqrt(252)
     current_vol = float(rolling_vol_calc.iloc[-1]) if not np.isnan(rolling_vol_calc.iloc[-1]) else 0.15
-    _, _, _, _, bullish_p, bearish_p = compute_monte_carlo(current_price, current_vol)
     
-    fvgs, market_structure = detect_smart_money_patterns(df)
+    # --- 4-HOUR CLOSED CANDLE DIAGNOSTIC ENGINE ---
+    df_4h_closed = get_4h_closed_data(df)
+    
+    if not df_4h_closed.empty:
+        price_4h_closed = float(df_4h_closed['Close'].iloc[-1])
+        vol_4h_calc = df_4h_closed['Close'].pct_change().rolling(21).std() * np.sqrt(252)
+        vol_4h = float(vol_4h_calc.iloc[-1]) if not np.isnan(vol_4h_calc.iloc[-1]) else current_vol
+        
+        _, _, _, _, bullish_p_4h, bearish_p_4h = compute_monte_carlo(price_4h_closed, vol_4h)
+        fvgs_4h, structure_4h = detect_smart_money_patterns(df_4h_closed)
+        last_4h_time = df_4h_closed.index[-1].strftime('%Y-%m-%d %H:%M UTC')
+    else:
+        bullish_p_4h, bearish_p_4h = 50.0, 50.0
+        fvgs_4h, structure_4h = [], "Consolidation / Range"
+        last_4h_time = "N/A"
 
     # Metrics Summary Bar
     k1, k2, k3 = st.columns(3)
@@ -304,31 +338,36 @@ if not df.empty:
     k2.metric("Stationarity (ADF p-value)", f"{p_value:.4f}")
     k3.metric("Data Feed Status", feed_source)
 
-    # --- TOP COMMAND CENTER: QUANTITATIVE DIAGNOSIS & EXECUTION VERDICT ---
-    st.subheader("Quantitative Diagnosis & Execution Verdict")
+    # --- TOP COMMAND CENTER: 4H CLOSED-BAR QUANTITATIVE VERDICT ---
+    st.subheader("Quantitative Diagnosis & Execution Verdict (4H Candle Anchor)")
     
-    if bullish_p > 60:
+    if bullish_p_4h > 60:
         verdict_action = "HIGH-PROBABILITY BUY (LONG ENTRY SIGNAL)"
-        verdict_desc = "The model confirms dominant statistical and structural upward alignment. Monte Carlo pathways have cleared the 60% confidence threshold, supported by a confirmed structural breakout."
+        verdict_desc = "The 4-hour closed candle model confirms statistical and structural upward alignment. Monte Carlo pathways on the closed 4H bar have cleared the 60% confidence threshold."
         verdict_color = "#00E5FF"
-    elif bearish_p > 60:
+    elif bearish_p_4h > 60:
         verdict_action = "HIGH-PROBABILITY SELL (SHORT ENTRY SIGNAL)"
-        verdict_desc = "The model confirms downside distribution pressure. Terminal probabilities favor a short continuation pattern backed by negative correlation filters."
+        verdict_desc = "The 4-hour closed candle model confirms downside distribution pressure. Terminal probabilities favor a short continuation pattern."
         verdict_color = "#FF4081"
     else:
         verdict_action = "STAND ASIDE / NEUTRAL REGIME (NO TRADE)"
-        verdict_desc = f"Current metrics indicate market indecision with a tight split ({bullish_p:.1f}% Bullish vs {bearish_p:.1f}% Bearish). High structural noise (detected {len(fvgs)} active Fair Value Gaps) combined with a neutral regime ('{market_structure}') dictates capital preservation until probabilities skew past 60%."
+        verdict_desc = f"The 4-hour closed bar evaluation shows market equilibrium with a tight split ({bullish_p_4h:.1f}% Bullish vs {bearish_p_4h:.1f}% Bearish). High structural noise (detected {len(fvgs_4h)} active 4H Fair Value Gaps) dictates capital preservation until probabilities skew past 60%."
         verdict_color = "#FFD700"
 
     st.markdown(f"""
     <div style="background-color: #161B22; padding: 22px; border-radius: 8px; border: 1px solid #30363d; font-family: sans-serif; color: #c9d1d9; margin-bottom: 25px;">
-        <h4 style="margin-top: 0; color: {verdict_color};">📊 Real-Time Diagnostic Verdict: {verdict_action}</h4>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h4 style="margin: 0; color: {verdict_color};">📊 Diagnostic Verdict: {verdict_action}</h4>
+            <span style="font-size: 11px; background: #21262d; color: #8b949e; padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d;">
+                🔒 Evaluated on 4H Close: <strong>{last_4h_time}</strong>
+            </span>
+        </div>
         <p style="font-size: 14px; line-height: 1.6; margin-bottom: 15px;">
             {verdict_desc}
         </p>
         <hr style="border: 0; border-top: 1px solid #30363d; margin: 15px 0;">
         <p style="font-size: 13px; margin: 0; color: #8b949e;">
-            <strong>Diagnostic Core Telemetry:</strong> Active Structure logged as <code>{market_structure}</code> with a simulated terminal distribution of <strong>{bullish_p:.1f}% Bullish</strong> vs <strong>{bearish_p:.1f}% Bearish</strong>. The system has isolated <strong>{len(fvgs)} active institutional Fair Value Gaps (FVGs)</strong> on the active timeframe, highlighting localized price fragmentation while macro correlation boundaries remain strictly constrained.
+            <strong>4-Hour Telemetry Engine:</strong> Active 4H Structure evaluated as <code>{structure_4h}</code> with a simulated terminal distribution of <strong>{bullish_p_4h:.1f}% Bullish</strong> vs <strong>{bearish_p_4h:.1f}% Bearish</strong>. The 4H matrix isolated <strong>{len(fvgs_4h)} closed 4H Fair Value Gaps (FVGs)</strong>, locking this stance until the close of the next 4-hour bar.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -427,7 +466,8 @@ if not df.empty:
     fig = go.Figure()
     fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Market Data"))
 
-    for fvg in fvgs[-5:]:
+    fvgs_chart, _ = detect_smart_money_patterns(df)
+    for fvg in fvgs_chart[-5:]:
         color = "rgba(0, 255, 0, 0.15)" if "Bullish" in fvg['type'] else "rgba(255, 0, 0, 0.15)"
         fig.add_shape(
             type="rect",

@@ -13,8 +13,33 @@ import yfinance as yf
 import warnings
 warnings.filterwarnings('ignore')
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION & SECURITY ---
 st.set_page_config(layout="wide", page_title="XAU/USD Advanced Quantitative Analytics")
+
+def check_password():
+    """Returns `True` if the user entered the correct password."""
+    def password_entered():
+        if st.session_state["password"] == "January16@&1989":
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Clear password from session state
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.markdown("## 🔒 Private Quantitative Dashboard Authentication")
+        st.text_input("Enter Dashboard Password", type="password", on_change=password_entered, key="password")
+        return False
+    elif not st.session_state["password_correct"]:
+        st.markdown("## 🔒 Private Quantitative Dashboard Authentication")
+        st.text_input("Enter Dashboard Password", type="password", on_change=password_entered, key="password")
+        st.error("😕 Password incorrect. Access denied.")
+        return False
+    else:
+        return True
+
+# Enforce password protection before rendering dashboard
+if not check_password():
+    st.stop()
 
 BG_COLOR = "#0E1117"
 PRIMARY = "#FFD700"
@@ -93,7 +118,6 @@ def detect_smart_money_patterns(df):
     fvgs = []
     market_structure = "Consolidation / Range"
     
-    # Detect Fair Value Gaps
     for i in range(2, len(df)):
         if df['High'].iloc[i-2] < df['Low'].iloc[i]:
             fvgs.append({
@@ -112,7 +136,6 @@ def detect_smart_money_patterns(df):
                 'upper': df['Low'].iloc[i-2]
             })
             
-    # Simple Market Structure Shift (MSS) heuristic based on recent highs/lows
     recent_closes = df['Close'].iloc[-10:]
     if recent_closes.iloc[-1] > recent_closes.max() * 0.999:
         market_structure = "Bullish Market Structure Shift (MSS) / Break of Structure"
@@ -220,9 +243,37 @@ def compute_monte_carlo(current_price, volatility, steps=30, paths=100):
 
     return simulations, np.median(simulations, axis=1), np.percentile(simulations, 97.5, axis=1), np.percentile(simulations, 2.5, axis=1), bullish_prob, bearish_prob
 
-# --- SIDEBAR CONTROL PANEL ---
+# --- SIDEBAR CONTROL PANEL & LIVE PHT CLOCK ---
 with st.sidebar:
     st.header("MARKET & FEED CONFIGURATION")
+    
+    # Live Active 12-Hour Philippines Standard Time Clock Component
+    pht_clock_html = """
+    <div style="font-family: sans-serif; color: #FFD700; font-size: 13px; font-weight: bold; background: #161B22; padding: 10px; border-radius: 6px; text-align: center; border: 1px solid #30363d; margin-bottom: 15px;">
+        🇵🇭 PHT Live Time<br>
+        <span id="pht-clock" style="color: #00E5FF; font-size: 14px;">Loading...</span>
+    </div>
+    <script>
+    function updateClock() {
+        const options = { 
+            timeZone: 'Asia/Manila', 
+            year: 'numeric', 
+            month: 'short', 
+            day: 'numeric', 
+            hour: 'numeric', 
+            minute: '2-digit', 
+            second: '2-digit', 
+            hour12: true 
+        };
+        const formatter = new Intl.DateTimeFormat('en-US', options);
+        document.getElementById('pht-clock').innerText = formatter.format(new Date());
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+    </script>
+    """
+    components.html(pht_clock_html, height=75)
+
     asset = st.selectbox("Asset Selector", ["XAUUSD", "EURUSD", "GBPUSD"])
     interval = st.selectbox("Timeframe", ["5m", "15m", "1hr", "4hr", "1d", "1w"], index=1)
     lookback = st.select_slider("Lookback Period", ["1mo", "3mo", "6mo", "1y", "2y"], value="3mo")

@@ -7,7 +7,9 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.stattools import adfuller
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import train_test_split
 from twelvedata import TDClient
 import yfinance as yf
 import warnings
@@ -177,6 +179,44 @@ def detect_smart_money_patterns(df):
 
     return fvgs, market_structure
 
+# --- 4H CLOSED CANDLE ROC-AUC CLASSIFIER MODULE ---
+def compute_4h_roc_auc(df_4h):
+    """Computes directional ROC-AUC strictly on closed 4H candles."""
+    if df_4h.empty or len(df_4h) < 30:
+        return 0.50
+    
+    df = df.copy()
+    df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)
+    df['Returns'] = df['Close'].pct_change()
+    
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+    rs = gain / loss.replace(0, np.nan)
+    df['RSI'] = 100 - (100 / (1 + rs))
+    df['Volatility'] = df['Close'].pct_change().rolling(14).std()
+    
+    df.dropna(inplace=True)
+    if len(df) < 20:
+        return 0.50
+        
+    X = df[['Returns', 'RSI', 'Volatility']]
+    y = df['Target']
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+    
+    if len(np.unique(y_test)) < 2:
+        return 0.50
+        
+    try:
+        model = LogisticRegression()
+        model.fit(X_train, y_train)
+        y_pred_proba = model.predict_proba(X_test)[:, 1]
+        auc_score = roc_auc_score(y_test, y_pred_proba)
+        return float(auc_score)
+    except Exception:
+        return 0.50
+
 # --- AUTOMATED MODEL OPTIMIZATION ENGINE ---
 def auto_fit_sarima(data_series):
     adf_pvalue = adfuller(data_series.dropna())[1]
@@ -340,17 +380,20 @@ if not df.empty:
         
         _, _, _, _, bullish_p_4h, bearish_p_4h = compute_monte_carlo(price_4h_closed, vol_4h)
         fvgs_4h, structure_4h = detect_smart_money_patterns(df_4h_closed)
+        auc_4h_score = compute_4h_roc_auc(df_4h_closed)
         last_4h_time = df_4h_closed.index[-1].strftime('%Y-%m-%d %H:%M UTC')
     else:
         bullish_p_4h, bearish_p_4h = 50.0, 50.0
         fvgs_4h, structure_4h = [], "Consolidation / Range"
+        auc_4h_score = 0.50
         last_4h_time = "N/A"
 
-    # Metrics Summary Bar
-    k1, k2, k3 = st.columns(3)
+    # Metrics Summary Bar (Expanded with 4H ROC-AUC)
+    k1, k2, k3, k4 = st.columns(4)
     k1.metric("Spot Price", f"${current_price:.2f}")
     k2.metric("Stationarity (ADF p-value)", f"{p_value:.4f}")
-    k3.metric("Data Feed Status", feed_source)
+    k3.metric("4H Classifier ROC-AUC", f"{auc_4h_score:.3f}")
+    k4.metric("Data Feed Status", feed_source)
 
     # --- TOP COMMAND CENTER: 4H CLOSED-BAR QUANTITATIVE VERDICT ---
     st.subheader("Quantitative Diagnosis & Execution Verdict (4H Candle Anchor)")
@@ -381,7 +424,7 @@ if not df.empty:
         </p>
         <hr style="border: 0; border-top: 1px solid #30363d; margin: 15px 0;">
         <p style="font-size: 13px; margin: 0; color: #8b949e;">
-            <strong>4-Hour Telemetry Engine:</strong> Active 4H Structure evaluated as <code>{structure_4h}</code> with a simulated terminal distribution of <strong>{bullish_p_4h:.1f}% Bullish</strong> vs <strong>{bearish_p_4h:.1f}% Bearish</strong>. The 4H matrix isolated <strong>{len(fvgs_4h)} closed 4H Fair Value Gaps (FVGs)</strong>, locking this stance until the close of the next 4-hour bar.
+            <strong>4-Hour Telemetry Engine:</strong> Active 4H Structure evaluated as <code>{structure_4h}</code> with a simulated terminal distribution of <strong>{bullish_p_4h:.1f}% Bullish</strong> vs <strong>{bearish_p_4h:.1f}% Bearish</strong> (Model ROC-AUC Score: <code>{auc_4h_score:.3f}</code>). The 4H matrix isolated <strong>{len(fvgs_4h)} closed 4H Fair Value Gaps (FVGs)</strong>, locking this stance until the close of the next 4-hour bar.
         </p>
     </div>
     """, unsafe_allow_html=True)

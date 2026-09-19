@@ -66,6 +66,28 @@ def fetch_data(ticker_symbol, interval_str, lookback_str):
 
     return df, feed_source, notice
 
+# --- MACRO CORRELATION ENGINE ---
+@st.cache_data(ttl=300)
+def fetch_macro_correlation(period_str):
+    tickers = {
+        'Gold (XAU/USD)': 'GC=F',
+        'Dollar Index (DXY)': 'DX-Y.NYB',
+        'EUR/USD': 'EURUSD=X',
+        '10Y Yield (TNX)': '^TNX'
+    }
+    data = pd.DataFrame()
+    for name, sym in tickers.items():
+        try:
+            df_asset = yf.download(sym, period=period_str, interval="1d", progress=False)
+            if isinstance(df_asset.columns, pd.MultiIndex):
+                data[name] = df_asset['Close'].squeeze()
+            else:
+                data[name] = df_asset['Close']
+        except Exception:
+            pass
+    data.dropna(inplace=True)
+    return data.pct_change().corr()
+
 # --- QUANTITATIVE CALCULATIONS ---
 def fit_sarima(data, p, d, q):
     try:
@@ -109,7 +131,7 @@ with st.sidebar:
     st.header("MARKET & FEED CONFIGURATION")
     asset = st.selectbox("Asset Selector", ["XAUUSD", "EURUSD", "GBPUSD"])
     interval = st.selectbox("Timeframe", ["5m", "15m", "1hr", "4hr", "1d", "1w"], index=1)
-    lookback = st.select_slider("Lookback Period", ["1mo", "3mo", "6mo", "1y", "2y"], value="6mo")
+    lookback = st.select_slider("Lookback Period", ["1mo", "3mo", "6mo", "1y", "2y"], value="3mo")
 
     st.header("MODEL HYPERPARAMETERS")
     col1, col2, col3 = st.columns(3)
@@ -136,56 +158,106 @@ if not df.empty:
     k2.metric("Stationarity (ADF p-value)", f"{p_value:.4f}")
     k3.metric("Data Feed Status", feed_source)
 
-    # --- REAL-TIME TRADINGVIEW CHART ---
-    st.subheader("Real-Time Interactive TradingView Feed")
+    # --- REAL-TIME MULTI-ASSET TRADINGVIEW FEEDS ---
+    st.subheader("Real-Time Multi-Asset Charts (XAU/USD vs. DXY)")
     tv_tf_map = {"5m": "5", "15m": "15", "1hr": "60", "4hr": "240", "1d": "D", "1w": "W"}
     tv_interval = tv_tf_map.get(interval, "15")
-    tv_symbol = "OANDA:XAUUSD" if asset in ["XAUUSD", "GC=F", "GOLD"] else f"FX:{asset}"
 
-    tradingview_html = f"""
-    <div class="tradingview-widget-container" style="height:550px;width:100%">
-      <div id="tradingview_chart" style="height:550px;width:100%"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-      <script type="text/javascript">
-      new TradingView.widget({{
-        "autosize": true,
-        "symbol": "{tv_symbol}",
-        "interval": "{tv_interval}",
-        "timezone": "Etc/UTC",
-        "theme": "dark",
-        "style": "1",
-        "locale": "en",
-        "toolbar_bg": "#161B22",
-        "enable_publishing": false,
-        "allow_symbol_change": true,
-        "container_id": "tradingview_chart"
-      }});
-      </script>
-    </div>
-    """
-    components.html(tradingview_html, height=560)
+    chart_col1, chart_col2 = st.columns(2)
+
+    with chart_col1:
+        st.markdown("**Gold Spot / U.S. Dollar (OANDA:XAUUSD)**")
+        tv_gold_html = f"""
+        <div class="tradingview-widget-container" style="height:460px;width:100%">
+          <div id="tradingview_gold" style="height:460px;width:100%"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+          <script type="text/javascript">
+          new TradingView.widget({{
+            "autosize": true,
+            "symbol": "OANDA:XAUUSD",
+            "interval": "{tv_interval}",
+            "timezone": "Etc/UTC",
+            "theme": "dark",
+            "style": "1",
+            "locale": "en",
+            "toolbar_bg": "#161B22",
+            "enable_publishing": false,
+            "allow_symbol_change": true,
+            "container_id": "tradingview_gold"
+          }});
+          </script>
+        </div>
+        """
+        components.html(tv_gold_html, height=470)
+
+    with chart_col2:
+        st.markdown("**U.S. Dollar Index (CAPITALCOM:DXY)**")
+        tv_dxy_html = f"""
+        <div class="tradingview-widget-container" style="height:460px;width:100%">
+          <div id="tradingview_dxy" style="height:460px;width:100%"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+          <script type="text/javascript">
+          new TradingView.widget({{
+            "autosize": true,
+            "symbol": "CAPITALCOM:DXY",
+            "interval": "{tv_interval}",
+            "timezone": "Etc/UTC",
+            "theme": "dark",
+            "style": "1",
+            "locale": "en",
+            "toolbar_bg": "#161B22",
+            "enable_publishing": false,
+            "allow_symbol_change": true,
+            "container_id": "tradingview_dxy"
+          }});
+          </script>
+        </div>
+        """
+        components.html(tv_dxy_html, height=470)
+
+    # --- CROSS-ASSET MACRO CORRELATION HEATMAP ---
+    st.subheader("Cross-Asset Rolling Return Correlation Matrix")
+    try:
+        corr_matrix = fetch_macro_correlation(lookback)
+        if not corr_matrix.empty:
+            fig_corr = go.Figure(data=go.Heatmap(
+                z=corr_matrix.values,
+                x=corr_matrix.columns,
+                y=corr_matrix.index,
+                colorscale='RdBu',
+                zmin=-1, zmax=1,
+                text=np.round(corr_matrix.values, 2),
+                texttemplate="%{text}",
+                textfont={"size": 13}
+            ))
+            fig_corr.update_layout(
+                template="plotly_dark",
+                plot_bgcolor=BG_COLOR,
+                paper_bgcolor=BG_COLOR,
+                height=380,
+                margin=dict(l=0, r=0, t=20, b=0)
+            )
+            st.plotly_chart(fig_corr, use_container_width=True)
+    except Exception as e:
+        st.warning(f"Unable to render correlation heatmap: {e}")
 
     # --- MODULE 1: SARIMA FORECAST ---
-    @st.fragment(run_every="5s")
-    def render_sarima_chart():
-        st.subheader("Statistical Price Channel & SARIMA Forecasting")
-        fig = go.Figure()
-        fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Market Data"))
+    st.subheader("Statistical Price Channel & SARIMA Forecasting")
+    fig = go.Figure()
+    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Market Data"))
 
-        mean_forecast, conf_int = fit_sarima(df['Close'].values, p, d, q)
-        if mean_forecast is not None and conf_int is not None:
-            idx_future = pd.date_range(df.index[-1], periods=31, freq='B')[1:]
-            fig.add_trace(go.Scatter(x=idx_future, y=mean_forecast, line=dict(color=SIGNAL), name="SARIMA Forecast"))
-            fig.add_trace(go.Scatter(
-                x=np.concatenate([idx_future, idx_future[::-1]]),
-                y=np.concatenate([conf_int[:, 0], conf_int[:, 1][::-1]]),
-                fill='toself', fillcolor='rgba(0, 229, 255, 0.2)',
-                line=dict(color='rgba(255,255,255,0)'), name="95% CI"
-            ))
-        fig.update_layout(template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR, margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig, use_container_width=True)
-
-    render_sarima_chart()
+    mean_forecast, conf_int = fit_sarima(df['Close'].values, p, d, q)
+    if mean_forecast is not None and conf_int is not None:
+        idx_future = pd.date_range(df.index[-1], periods=31, freq='B')[1:]
+        fig.add_trace(go.Scatter(x=idx_future, y=mean_forecast, line=dict(color=SIGNAL), name="SARIMA Forecast"))
+        fig.add_trace(go.Scatter(
+            x=np.concatenate([idx_future, idx_future[::-1]]),
+            y=np.concatenate([conf_int[:, 0], conf_int[:, 1][::-1]]),
+            fill='toself', fillcolor='rgba(0, 229, 255, 0.2)',
+            line=dict(color='rgba(255,255,255,0)'), name="95% CI"
+        ))
+    fig.update_layout(template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR, margin=dict(l=0, r=0, t=30, b=0))
+    st.plotly_chart(fig, use_container_width=True)
 
     # --- MODULES 2 & 3: PCA & REGRESSION ---
     colA, colB = st.columns(2)

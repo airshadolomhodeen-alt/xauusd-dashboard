@@ -243,15 +243,23 @@ def compute_monte_carlo(current_price, volatility, steps=30, paths=100):
 
     return simulations, np.median(simulations, axis=1), np.percentile(simulations, 97.5, axis=1), np.percentile(simulations, 2.5, axis=1), bullish_prob, bearish_prob
 
-# --- SIDEBAR CONTROL PANEL & LIVE PHT CLOCK ---
+# --- SIDEBAR CONTROL PANEL ---
 with st.sidebar:
     st.header("MARKET & FEED CONFIGURATION")
-    
-    # Live Active 12-Hour Philippines Standard Time Clock Component
+    asset = st.selectbox("Asset Selector", ["XAUUSD", "EURUSD", "GBPUSD"])
+    interval = st.selectbox("Timeframe", ["5m", "15m", "1hr", "4hr", "1d", "1w"], index=1)
+    lookback = st.select_slider("Lookback Period", ["1mo", "3mo", "6mo", "1y", "2y"], value="3mo")
+
+# --- MAIN DASHBOARD HEADER & LIVE PHT CLOCK BANNER ---
+header_col1, header_col2 = st.columns([2, 1])
+
+with header_col1:
+    st.title("XAU/USD Advanced Quantitative Analytics")
+
+with header_col2:
     pht_clock_html = """
-    <div style="font-family: sans-serif; color: #FFD700; font-size: 13px; font-weight: bold; background: #161B22; padding: 10px; border-radius: 6px; text-align: center; border: 1px solid #30363d; margin-bottom: 15px;">
-        🇵🇭 PHT Live Time<br>
-        <span id="pht-clock" style="color: #00E5FF; font-size: 14px;">Loading...</span>
+    <div style="font-family: sans-serif; color: #FFD700; font-size: 13px; font-weight: bold; background: #161B22; padding: 12px; border-radius: 6px; text-align: right; border: 1px solid #30363d; margin-top: 15px;">
+        🇵🇭 PHT Live: <span id="pht-clock" style="color: #00E5FF; font-size: 14px;">Loading...</span>
     </div>
     <script>
     function updateClock() {
@@ -272,14 +280,7 @@ with st.sidebar:
     updateClock();
     </script>
     """
-    components.html(pht_clock_html, height=75)
-
-    asset = st.selectbox("Asset Selector", ["XAUUSD", "EURUSD", "GBPUSD"])
-    interval = st.selectbox("Timeframe", ["5m", "15m", "1hr", "4hr", "1d", "1w"], index=1)
-    lookback = st.select_slider("Lookback Period", ["1mo", "3mo", "6mo", "1y", "2y"], value="3mo")
-
-# --- MAIN DASHBOARD HEADER ---
-st.title("XAU/USD Advanced Quantitative Analytics")
+    components.html(pht_clock_html, height=65)
 
 df, feed_source, notice = fetch_data(asset, interval, lookback)
 

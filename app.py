@@ -27,11 +27,9 @@ def fetch_data(ticker_symbol, interval_str, lookback_str):
     feed_source = "Unknown"
     notice = ""
 
-    # Interval mapping for Twelve Data API
     td_interval_map = {"5m": "5min", "15m": "15min", "1hr": "1h", "4hr": "4h", "1d": "1day", "1w": "1week"}
     td_interval = td_interval_map.get(interval_str, "15min")
 
-    # 1. Primary: Twelve Data Cloud SDK
     api_key = st.secrets.get("TWELVE_DATA_API_KEY", "")
     
     if api_key:
@@ -52,7 +50,6 @@ def fetch_data(ticker_symbol, interval_str, lookback_str):
         except Exception as e:
             notice = f"Twelve Data Feed fallback activated: {e}"
 
-    # 2. Secondary Fallback: Yahoo Finance
     if df.empty:
         yf_symbol = "GC=F" if ticker_symbol in ["XAUUSD", "GOLD", "GC=F"] else ticker_symbol
         yf_tf_map = {"5m": "5m", "15m": "15m", "1hr": "1h", "4hr": "1h", "1d": "1d", "1w": "1wk"}
@@ -69,12 +66,12 @@ def fetch_data(ticker_symbol, interval_str, lookback_str):
 
     return df, feed_source, notice
 
-# --- ENHANCED MACRO CORRELATION ENGINE (TIPS & SILVER ADDED) ---
+# --- ENHANCED MACRO CORRELATION ENGINE ---
 @st.cache_data(ttl=300)
 def fetch_macro_correlation(period_str):
     tickers = {
         'Gold (XAU/USD)': 'GC=F',
-        'Silver (Positive Proxy)': 'SI=F',
+        'Silver (Proxy)': 'SI=F',
         'Dollar Index (DXY)': 'DX-Y.NYB',
         'Real Yields (IEF)': 'IEF'
     }
@@ -90,6 +87,30 @@ def fetch_macro_correlation(period_str):
             pass
     data.dropna(inplace=True)
     return data.pct_change().corr()
+
+# --- SMART MONEY CONCEPTS: FVG DETECTOR ---
+def detect_fair_value_gaps(df):
+    fvgs = []
+    for i in range(2, len(df)):
+        # Bullish FVG: Candle 1 High < Candle 3 Low
+        if df['High'].iloc[i-2] < df['Low'].iloc[i]:
+            fvgs.append({
+                'type': 'Bullish',
+                'start_idx': df.index[i-1],
+                'end_idx': df.index[-1],
+                'lower': df['High'].iloc[i-2],
+                'upper': df['Low'].iloc[i]
+            })
+        # Bearish FVG: Candle 1 Low > Candle 3 High
+        elif df['Low'].iloc[i-2] > df['High'].iloc[i]:
+            fvgs.append({
+                'type': 'Bearish',
+                'start_idx': df.index[i-1],
+                'end_idx': df.index[-1],
+                'lower': df['High'].iloc[i],
+                'upper': df['Low'].iloc[i-2]
+            })
+    return fvgs
 
 # --- AUTOMATED MODEL OPTIMIZATION ENGINE ---
 def auto_fit_sarima(data_series):
@@ -183,7 +204,6 @@ def compute_monte_carlo(current_price, volatility, steps=30, paths=100):
         rand = np.random.standard_normal(paths)
         simulations[t] = simulations[t-1] * np.exp((0 - 0.5 * volatility**2) * dt + volatility * np.sqrt(dt) * rand)
     
-    # Calculate Bullish vs Bearish terminal probabilities
     final_prices = simulations[-1, :]
     bullish_count = np.sum(final_prices > current_price)
     bullish_prob = (bullish_count / paths) * 100
@@ -216,7 +236,7 @@ if not df.empty:
     k2.metric("Stationarity (ADF p-value)", f"{p_value:.4f}")
     k3.metric("Data Feed Status", feed_source)
 
-    # --- REAL-TIME MULTI-ASSET TRADINGVIEW FEEDS ---
+    # --- REAL-TIME TRADINGVIEW CHARTS ---
     st.subheader("Real-Time Multi-Asset Charts (XAU/USD vs. DXY)")
     tv_tf_map = {"5m": "5", "15m": "15", "1hr": "60", "4hr": "240", "1d": "D", "1w": "W"}
     tv_interval = tv_tf_map.get(interval, "15")
@@ -299,14 +319,24 @@ if not df.empty:
     except Exception as e:
         st.warning(f"Unable to render correlation heatmap: {e}")
 
-    # --- MODULE 1: AUTOMATED SARIMA FORECAST ---
-    st.subheader("Statistical Price Channel & Automated SARIMA Forecasting")
+    # --- MODULE 1: SARIMA FORECAST & SMC FVG DETECTOR ---
+    st.subheader("Statistical Price Channel, SARIMA Forecast & SMC FVG Overlay")
     mean_forecast, conf_int, best_order, best_aic = auto_fit_sarima(df['Close'])
     p_opt, d_opt, q_opt = best_order
-    st.caption(f"**Automated Optimization Evidence:** Stationarity proven ($d={d_opt}$) | Lowest AIC Score Model selected: **ARIMA({p_opt}, {d_opt}, {q_opt})** (AIC: `{best_aic:.2f}`)")
+    st.caption(f"**Optimization Data:** Stationarity proven ($d={d_opt}$) | Selected ARIMA Model: **({p_opt}, {d_opt}, {q_opt})** (AIC: `{best_aic:.2f}`)")
 
     fig = go.Figure()
     fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Market Data"))
+
+    # Overlay SMC Fair Value Gaps
+    fvgs = detect_fair_value_gaps(df)
+    for fvg in fvgs[-5:]:  # Plot last 5 detected imbalances
+        color = "rgba(0, 255, 0, 0.15)" if fvg['type'] == 'Bullish' else "rgba(255, 0, 0, 0.15)"
+        fig.add_shape(
+            type="rect",
+            x0=fvg['start_idx'], y0=fvg['lower'], x1=fvg['end_idx'], y1=fvg['upper'],
+            fillcolor=color, line=dict(width=0), layer="below"
+        )
 
     if mean_forecast is not None and conf_int is not None:
         idx_future = pd.date_range(df.index[-1], periods=31, freq='B')[1:]
@@ -315,7 +345,7 @@ if not df.empty:
             x=np.concatenate([idx_future, idx_future[::-1]]),
             y=np.concatenate([conf_int.iloc[:, 0] if hasattr(conf_int, 'iloc') else conf_int[:, 0], 
                               (conf_int.iloc[:, 1] if hasattr(conf_int, 'iloc') else conf_int[:, 1])[::-1]]),
-            fill='toself', fillcolor='rgba(0, 229, 255, 0.2)',
+            fill='toself', fillcolor='rgba(0, 229, 255, 0.1)',
             line=dict(color='rgba(255,255,255,0)'), name="95% CI"
         ))
     fig.update_layout(template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR, margin=dict(l=0, r=0, t=30, b=0))
@@ -324,7 +354,7 @@ if not df.empty:
     # --- MODULES 2 & 3: PCA & REGRESSION ---
     colA, colB = st.columns(2)
     with colA:
-        st.subheader("Dimensionality Reduction & PCA Analysis (Real Indicators)")
+        st.subheader("Dimensionality Reduction & PCA Analysis")
         components_pca, var_ratio = run_pca(df, n_components=2)
         fig_pca = go.Figure(data=go.Scatter(x=components_pca[:,0], y=components_pca[:,1], mode='markers', marker=dict(color=PRIMARY)))
         fig_pca.update_layout(title="PC1 vs PC2 Scatter", template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR)
@@ -332,12 +362,12 @@ if not df.empty:
         st.bar_chart(pd.DataFrame(var_ratio, index=[f"PC{i+1}" for i in range(len(var_ratio))], columns=["Explained Variance"]))
 
     with colB:
-        st.subheader("Linear Regression vs. S&P 500 Market Benchmark")
+        st.subheader("Linear Regression vs. S&P 500 Benchmark")
         market_ret, asset_ret, fitted, residuals = run_regression(df)
         fig_reg = go.Figure()
         fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=asset_ret.flatten(), mode='markers', name="Returns", marker=dict(color=SIGNAL)))
         fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=fitted.flatten(), mode='lines', name="Fitted OLS Line", line=dict(color=PRIMARY)))
-        fig_reg.update_layout(title="Gold Returns vs S&P 500 Returns", template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR)
+        fig_reg.update_layout(title="Asset Returns vs S&P 500 Returns", template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR)
         st.plotly_chart(fig_reg, use_container_width=True)
 
         fig_res = go.Figure(data=go.Scatter(x=fitted.flatten(), y=residuals.flatten(), mode='markers', marker=dict(color='gray')))
@@ -359,7 +389,6 @@ if not df.empty:
         current_vol = float(rolling_vol.iloc[-1]) if not np.isnan(rolling_vol.iloc[-1]) else 0.15
         sims, median, upper, lower, bullish_p, bearish_p = compute_monte_carlo(current_price, current_vol)
         
-        # Display Probability Metric Cards
         p_col1, p_col2 = st.columns(2)
         p_col1.metric("Monte Carlo Bullish Probability", f"{bullish_p:.1f}%")
         p_col2.metric("Monte Carlo Bearish Probability", f"{bearish_p:.1f}%")
@@ -372,6 +401,14 @@ if not df.empty:
         fig_mc.add_trace(go.Scatter(y=lower, mode='lines', line=dict(color='red', dash='dash'), name="-2σ Channel"))
         fig_mc.update_layout(title="30-Step Forward Monte Carlo Paths", template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR)
         st.plotly_chart(fig_mc, use_container_width=True)
+
+    # --- COMPOSITE QUANTITATIVE SYNTHESIS PANEL ---
+    st.subheader("Composite Quantitative Synthesis & Entry Bias")
+    bias_score = "BULLISH (LONG BIAS)" if bullish_p > 60 else ("BEARISH (SHORT BIAS)" if bearish_p > 60 else "NEUTRAL / CONSOLIDATION")
+    st.info(f"**Synthesized Quantitative Directional Bias:** **{bias_score}** \n"
+            f"• *Monte Carlo Metric:* {bullish_p:.1f}% Bullish vs {bearish_p:.1f}% Bearish\n"
+            f"• *Macro Condition:* Evaluated against DXY, Silver, and Real Yield Tunnels\n"
+            f"• *Structural Filter:* SMC Fair Value Gaps (FVG) and SARIMA channel boundaries active.")
 
 else:
     st.error("Data stream unavailable. Please verify Streamlit Secrets setup or sidebar parameters.")

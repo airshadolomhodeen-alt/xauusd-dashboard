@@ -69,14 +69,14 @@ def fetch_data(ticker_symbol, interval_str, lookback_str):
 
     return df, feed_source, notice
 
-# --- MACRO CORRELATION ENGINE ---
+# --- ENHANCED MACRO CORRELATION ENGINE (TIPS & SILVER ADDED) ---
 @st.cache_data(ttl=300)
 def fetch_macro_correlation(period_str):
     tickers = {
         'Gold (XAU/USD)': 'GC=F',
+        'Silver (Positive Proxy)': 'SI=F',
         'Dollar Index (DXY)': 'DX-Y.NYB',
-        'EUR/USD': 'EURUSD=X',
-        '10Y Yield (TNX)': '^TNX'
+        'Real Yields (IEF)': 'IEF'
     }
     data = pd.DataFrame()
     for name, sym in tickers.items():
@@ -93,13 +93,6 @@ def fetch_macro_correlation(period_str):
 
 # --- AUTOMATED MODEL OPTIMIZATION ENGINE ---
 def auto_fit_sarima(data_series):
-    """
-    Automated Parameter Optimization:
-    1. Determines 'd' using ADF stationarity test.
-    2. Runs grid search across p (0-3) and q (0-3).
-    3. Selects the model with lowest Akaike Information Criterion (AIC).
-    """
-    # 1. Evidence for 'd': Check ADF p-value
     adf_pvalue = adfuller(data_series.dropna())[1]
     best_d = 1 if adf_pvalue > 0.05 else 0
 
@@ -107,7 +100,6 @@ def auto_fit_sarima(data_series):
     best_order = (1, best_d, 1)
     best_results = None
 
-    # 2. Grid Search for p and q
     for p_try in range(0, 3):
         for q_try in range(0, 3):
             try:
@@ -127,25 +119,21 @@ def auto_fit_sarima(data_series):
         return None, None, (1, 1, 1), 0.0
 
 def run_pca(df, n_components=2):
-    # Real Mathematical 14-period RSI Calculation
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss.replace(0, np.nan)
     df_rsi = 100 - (100 / (1 + rs))
 
-    # Real Mathematical 12/26 MACD Line Calculation
     ema12 = df['Close'].ewm(span=12, adjust=False).mean()
     ema26 = df['Close'].ewm(span=26, adjust=False).mean()
     df_macd = ema12 - ema26
 
-    # Safely handle Volume (use real volume if present, otherwise calculate High-Low volatility spread)
     if 'Volume' in df.columns and df['Volume'].notna().sum() > 0 and (df['Volume'] != 0).any():
         vol_feature = df['Volume']
     else:
         vol_feature = df['High'] - df['Low']
 
-    # Assemble Matrix
     features = pd.DataFrame({
         'RSI': df_rsi,
         'MACD': df_macd,
@@ -155,17 +143,13 @@ def run_pca(df, n_components=2):
     if features.empty or len(features) < n_components:
         return np.zeros((len(df), n_components)), np.zeros(n_components)
 
-    # Standardize Features and Apply PCA
     scaled_features = StandardScaler().fit_transform(features)
     pca = PCA(n_components=n_components)
     components = pca.fit_transform(scaled_features)
     return components, pca.explained_variance_ratio_
 
 def run_regression(df):
-    # Real Percentage Returns for Gold
     asset_returns = df['Close'].pct_change().dropna()
-
-    # Real S&P 500 Market Benchmark Fetch
     try:
         sp500 = yf.download("^GSPC", period="1y", interval="1d", progress=False)
         if isinstance(sp500.columns, pd.MultiIndex):
@@ -174,7 +158,6 @@ def run_regression(df):
             sp500_close = sp500['Close']
         market_returns = sp500_close.pct_change().dropna()
 
-        # Align Gold and Market Benchmark timestamps
         combined = pd.DataFrame({
             'Asset': asset_returns,
             'Market': market_returns
@@ -186,7 +169,6 @@ def run_regression(df):
         X = asset_returns.values.reshape(-1, 1)
         y = asset_returns.values.reshape(-1, 1)
 
-    # OLS Model Fitting
     model = LinearRegression()
     model.fit(X, y)
     fitted = model.predict(X)
@@ -200,7 +182,14 @@ def compute_monte_carlo(current_price, volatility, steps=30, paths=100):
     for t in range(1, steps):
         rand = np.random.standard_normal(paths)
         simulations[t] = simulations[t-1] * np.exp((0 - 0.5 * volatility**2) * dt + volatility * np.sqrt(dt) * rand)
-    return simulations, np.median(simulations, axis=1), np.percentile(simulations, 97.5, axis=1), np.percentile(simulations, 2.5, axis=1)
+    
+    # Calculate Bullish vs Bearish terminal probabilities
+    final_prices = simulations[-1, :]
+    bullish_count = np.sum(final_prices > current_price)
+    bullish_prob = (bullish_count / paths) * 100
+    bearish_prob = 100 - bullish_prob
+
+    return simulations, np.median(simulations, axis=1), np.percentile(simulations, 97.5, axis=1), np.percentile(simulations, 2.5, axis=1), bullish_prob, bearish_prob
 
 # --- SIDEBAR CONTROL PANEL ---
 with st.sidebar:
@@ -285,7 +274,7 @@ if not df.empty:
         components.html(tv_dxy_html, height=470)
 
     # --- CROSS-ASSET MACRO CORRELATION HEATMAP ---
-    st.subheader("Cross-Asset Rolling Return Correlation Matrix")
+    st.subheader("Cross-Asset Rolling Return Correlation Matrix (Enhanced Drivers)")
     try:
         corr_matrix = fetch_macro_correlation(lookback)
         if not corr_matrix.empty:
@@ -312,11 +301,7 @@ if not df.empty:
 
     # --- MODULE 1: AUTOMATED SARIMA FORECAST ---
     st.subheader("Statistical Price Channel & Automated SARIMA Forecasting")
-    
-    # Run automated grid search on live close prices
     mean_forecast, conf_int, best_order, best_aic = auto_fit_sarima(df['Close'])
-    
-    # Display mathematical proof to user
     p_opt, d_opt, q_opt = best_order
     st.caption(f"**Automated Optimization Evidence:** Stationarity proven ($d={d_opt}$) | Lowest AIC Score Model selected: **ARIMA({p_opt}, {d_opt}, {q_opt})** (AIC: `{best_aic:.2f}`)")
 
@@ -359,8 +344,8 @@ if not df.empty:
         fig_res.update_layout(title="Residuals vs Fitted (Homoscedasticity)", template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR)
         st.plotly_chart(fig_res, use_container_width=True)
 
-    # --- MODULE 4: MONTE CARLO SIMULATION ---
-    st.subheader("GARCH Volatility & Monte Carlo Simulation Cones")
+    # --- MODULE 4: GARCH VOLATILITY & MONTE CARLO PROBABILITY REPORT ---
+    st.subheader("GARCH Volatility & Monte Carlo Probability Report")
     col_mc1, col_mc2 = st.columns(2)
 
     with col_mc1:
@@ -372,7 +357,13 @@ if not df.empty:
     with col_mc2:
         current_price = float(df['Close'].iloc[-1])
         current_vol = float(rolling_vol.iloc[-1]) if not np.isnan(rolling_vol.iloc[-1]) else 0.15
-        sims, median, upper, lower = compute_monte_carlo(current_price, current_vol)
+        sims, median, upper, lower, bullish_p, bearish_p = compute_monte_carlo(current_price, current_vol)
+        
+        # Display Probability Metric Cards
+        p_col1, p_col2 = st.columns(2)
+        p_col1.metric("Monte Carlo Bullish Probability", f"{bullish_p:.1f}%")
+        p_col2.metric("Monte Carlo Bearish Probability", f"{bearish_p:.1f}%")
+
         fig_mc = go.Figure()
         for i in range(100):
             fig_mc.add_trace(go.Scatter(y=sims[:, i], mode='lines', line=dict(color='rgba(255, 215, 0, 0.05)'), showlegend=False))

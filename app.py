@@ -14,19 +14,24 @@ import time
 # --- CONFIGURATION ---
 st.set_page_config(layout="wide", page_title="XAU/USD Advanced Quantitative Analytics")
 
-# Color Palette[cite: 1]
+# Color Palette
 BG_COLOR = "#0E1117"
 PRIMARY = "#FFD700"
 SIGNAL = "#00E5FF"
 TEXT = "#E6EDF3"
 
-# --- MODULAR FUNCTIONS[cite: 1] ---
+# --- MODULAR FUNCTIONS ---
 @st.cache_data(ttl=300)
 def fetch_historical_data(ticker, interval, lookback):
-    """Data Ingestion: yfinance for real-time market polling and historical OHLC data[cite: 1]"""
-    # Note: Can swap with MetaTrader 5 or WebSocket feeds here[cite: 1]
+    """Data Ingestion: yfinance for real-time market polling and historical OHLC data"""
     try:
         df = yf.download(ticker, period=lookback, interval=interval)
+        
+        # FIX: Flatten MultiIndex columns if present to extract standard 1D Series
+        # This resolves the float formatting TypeError on df['Close'].iloc[-1]
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.droplevel(1)
+            
         df.dropna(inplace=True)
         return df
     except Exception as e:
@@ -34,20 +39,20 @@ def fetch_historical_data(ticker, interval, lookback):
         return pd.DataFrame()
 
 def fit_sarima(data, p, d, q):
-    """Fit ARIMA/SARIMA and return forecast with 95% confidence intervals[cite: 1]"""
+    """Fit ARIMA/SARIMA and return forecast with 95% confidence intervals"""
     try:
         model = SARIMAX(data, order=(p, d, q))
         results = model.fit(disp=False)
         forecast = results.get_forecast(steps=30)
         mean_forecast = forecast.predicted_mean
-        conf_int = forecast.conf_int(alpha=0.05) # 95% CI[cite: 1]
+        conf_int = forecast.conf_int(alpha=0.05) # 95% CI
         return mean_forecast, conf_int
     except:
         return None, None
 
 def run_pca(df, n_components):
-    """Principal Component Analysis (PCA) scatter plot[cite: 1]"""
-    # Mocking yield curve, DXY, and tech indicators for PCA[cite: 1]
+    """Principal Component Analysis (PCA) scatter plot"""
+    # Mocking yield curve, DXY, and tech indicators for PCA
     features = pd.DataFrame({
         'RSI': np.random.uniform(30, 70, len(df)),
         'MACD': np.random.normal(0, 1, len(df)),
@@ -58,9 +63,9 @@ def run_pca(df, n_components):
     return components, pca.explained_variance_ratio_
 
 def run_regression(df):
-    """Linear Regression & Residual Diagnostics[cite: 1]"""
+    """Linear Regression & Residual Diagnostics"""
     returns = df['Close'].pct_change().dropna().values.reshape(-1, 1)
-    # Mock market index returns[cite: 1]
+    # Mock market index returns
     market_returns = returns + np.random.normal(0, 0.005, len(returns)).reshape(-1, 1) 
     
     model = LinearRegression()
@@ -70,7 +75,7 @@ def run_regression(df):
     return market_returns, returns, fitted, residuals
 
 def compute_monte_carlo(current_price, volatility, steps=30, paths=100):
-    """30-step forward Monte Carlo stochastic path simulation (100+ paths)[cite: 1]"""
+    """30-step forward Monte Carlo stochastic path simulation (100+ paths)"""
     dt = 1/252
     simulations = np.zeros((steps, paths))
     simulations[0] = current_price
@@ -83,14 +88,14 @@ def compute_monte_carlo(current_price, volatility, steps=30, paths=100):
     lower_2sigma = np.percentile(simulations, 2.5, axis=1)
     return simulations, median, upper_2sigma, lower_2sigma
 
-# --- SIDEBAR CONFIGURATION[cite: 1] ---
+# --- SIDEBAR CONFIGURATION ---
 with st.sidebar:
     st.header("MARKET & FEED CONFIGURATION")
-    asset = st.selectbox("Asset Selector", ["GC=F", "EURUSD=X", "^GSPC"]) # Asset Selector (GC=F / Gold Spot)[cite: 1]
-    interval = st.selectbox("Timeframe", ["1m", "5m", "1h", "1d"], index=3) # Timeframe selector[cite: 1]
-    lookback = st.select_slider("Lookback Period", ["1mo", "3mo", "6mo", "1y", "2y"], value="6mo") # Lookback period slider[cite: 1]
+    asset = st.selectbox("Asset Selector", ["GC=F", "EURUSD=X", "^GSPC"]) 
+    interval = st.selectbox("Timeframe", ["1m", "5m", "1h", "1d"], index=3) 
+    lookback = st.select_slider("Lookback Period", ["1mo", "3mo", "6mo", "1y", "2y"], value="6mo") 
     
-    st.header("MODEL HYPERPARAMETERS") # Model hyperparameter controls[cite: 1]
+    st.header("MODEL HYPERPARAMETERS") 
     col1, col2, col3 = st.columns(3)
     p = col1.number_input("p", 0, 5, 1)
     d = col2.number_input("d", 0, 2, 1)
@@ -103,31 +108,32 @@ st.title("XAU/USD Advanced Quantitative Analytics")
 df = fetch_historical_data(asset, interval, lookback)
 
 if not df.empty:
-    # Stationarity Check[cite: 1]
+    # Stationarity Check
     adf_result = adfuller(df['Close'].dropna())
     p_value = adf_result[1]
     
     # KPIs
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Spot Price", f"${df['Close'].iloc[-1]:.2f}")
+    # Using float conversion to ensure the metric displays properly even if typing is strict
+    k1.metric("Spot Price", f"${float(df['Close'].iloc[-1]):.2f}")
     k2.metric("Stationarity (ADF p-value)", f"{p_value:.4f}")
     
-    # --- MODULE 1: Live Chart & SARIMA Forecast[cite: 1] ---
-    @st.fragment(run_every="5s") # Streamlit fragment for live streaming without full-page refreshes[cite: 1]
+    # --- MODULE 1: Live Chart & SARIMA Forecast ---
+    @st.fragment(run_every="5s") 
     def render_live_chart():
         st.subheader("Real-Time Price Channel & SARIMA Forecasting")
         
         fig = go.Figure()
-        # Main candlestick / line chart[cite: 1]
+        # Main candlestick / line chart
         fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Market Data"))
         
-        # SARIMA Overlay[cite: 1]
+        # SARIMA Overlay
         mean_forecast, conf_int = fit_sarima(df['Close'].values, p, d, q)
         if mean_forecast is not None:
             idx_future = pd.date_range(df.index[-1], periods=31, freq='B')[1:]
             fig.add_trace(go.Scatter(x=idx_future, y=mean_forecast, line=dict(color=SIGNAL), name="SARIMA Forecast"))
             
-            # 95% confidence intervals (shaded fill)[cite: 1]
+            # 95% confidence intervals (shaded fill)
             fig.add_trace(go.Scatter(x=np.concatenate([idx_future, idx_future[::-1]]),
                                      y=np.concatenate([conf_int.iloc[:, 0], conf_int.iloc[:, 1][::-1]]),
                                      fill='toself', fillcolor='rgba(0, 229, 255, 0.2)', line=dict(color='rgba(255,255,255,0)'), name="95% CI"))
@@ -141,54 +147,54 @@ if not df.empty:
     colA, colB = st.columns(2)
     
     with colA:
-        # --- MODULE 2: Dimensionality Reduction & PCA Analysis[cite: 1] ---
+        # --- MODULE 2: Dimensionality Reduction & PCA Analysis ---
         st.subheader("Dimensionality Reduction & PCA Analysis")
         components, var_ratio = run_pca(df, n_pca)
         
-        # PC1 vs PC2 Scatter[cite: 1]
+        # PC1 vs PC2 Scatter
         fig_pca = go.Figure(data=go.Scatter(x=components[:,0], y=components[:,1], mode='markers', marker=dict(color=PRIMARY)))
         fig_pca.update_layout(title="PC1 vs PC2", template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR)
         st.plotly_chart(fig_pca, use_container_width=True)
         
-        # Variance explained bar chart[cite: 1]
+        # Variance explained bar chart
         st.bar_chart(pd.DataFrame(var_ratio, index=[f"PC{i+1}" for i in range(len(var_ratio))], columns=["Explained Variance"]))
 
     with colB:
-        # --- MODULE 3: Linear Regression & Residual Diagnostics[cite: 1] ---
+        # --- MODULE 3: Linear Regression & Residual Diagnostics ---
         st.subheader("Linear Regression & Residual Diagnostics")
         market_ret, asset_ret, fitted, residuals = run_regression(df)
         
         fig_reg = go.Figure()
-        # Scatter plot with Fitted OLS Regression Line[cite: 1]
+        # Scatter plot with Fitted OLS Regression Line
         fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=asset_ret.flatten(), mode='markers', name="Returns", marker=dict(color=SIGNAL)))
         fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=fitted.flatten(), mode='lines', name="Fitted OLS Line", line=dict(color=PRIMARY)))
         fig_reg.update_layout(title="Asset vs Market Returns", template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR)
         st.plotly_chart(fig_reg, use_container_width=True)
         
-        # Residuals vs Fitted plot[cite: 1]
+        # Residuals vs Fitted plot
         fig_res = go.Figure(data=go.Scatter(x=fitted.flatten(), y=residuals.flatten(), mode='markers', marker=dict(color='gray')))
         fig_res.update_layout(title="Residuals vs Fitted (Homoscedasticity Check)", template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR)
         st.plotly_chart(fig_res, use_container_width=True)
 
-    # --- MODULE 4: GARCH Volatility & Monte Carlo Simulation Cones[cite: 1] ---
+    # --- MODULE 4: GARCH Volatility & Monte Carlo Simulation Cones ---
     st.subheader("GARCH Volatility & Monte Carlo Simulation Cones")
     col_mc1, col_mc2 = st.columns(2)
     
     with col_mc1:
-        # Real-time rolling annualized volatility plot[cite: 1]
+        # Real-time rolling annualized volatility plot
         rolling_vol = df['Close'].pct_change().rolling(21).std() * np.sqrt(252)
         fig_vol = go.Figure(data=go.Scatter(x=df.index, y=rolling_vol, line=dict(color="#FF4081")))
         fig_vol.update_layout(title="Rolling Annualized Volatility (Proxy for GARCH)", template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR)
         st.plotly_chart(fig_vol, use_container_width=True)
         
     with col_mc2:
-        # Monte Carlo stochastic path simulation displaying median and ±2σ probability density channels[cite: 1]
-        current_price = df['Close'].iloc[-1]
-        current_vol = rolling_vol.iloc[-1] if not np.isnan(rolling_vol.iloc[-1]) else 0.15
+        # Monte Carlo stochastic path simulation displaying median and ±2σ probability density channels
+        current_price = float(df['Close'].iloc[-1])
+        current_vol = float(rolling_vol.iloc[-1]) if not np.isnan(rolling_vol.iloc[-1]) else 0.15
         sims, median, upper, lower = compute_monte_carlo(current_price, current_vol)
         
         fig_mc = go.Figure()
-        for i in range(100): # 100+ paths[cite: 1]
+        for i in range(100): # 100+ paths
             fig_mc.add_trace(go.Scatter(y=sims[:, i], mode='lines', line=dict(color='rgba(255, 215, 0, 0.05)'), showlegend=False))
         
         fig_mc.add_trace(go.Scatter(y=median, mode='lines', line=dict(color=SIGNAL, width=2), name="Median Path"))

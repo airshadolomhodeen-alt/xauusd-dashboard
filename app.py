@@ -92,7 +92,6 @@ def fetch_macro_correlation(period_str):
 def detect_fair_value_gaps(df):
     fvgs = []
     for i in range(2, len(df)):
-        # Bullish FVG: Candle 1 High < Candle 3 Low
         if df['High'].iloc[i-2] < df['Low'].iloc[i]:
             fvgs.append({
                 'type': 'Bullish',
@@ -101,7 +100,6 @@ def detect_fair_value_gaps(df):
                 'lower': df['High'].iloc[i-2],
                 'upper': df['Low'].iloc[i]
             })
-        # Bearish FVG: Candle 1 Low > Candle 3 High
         elif df['Low'].iloc[i-2] > df['High'].iloc[i]:
             fvgs.append({
                 'type': 'Bearish',
@@ -218,7 +216,7 @@ with st.sidebar:
     interval = st.selectbox("Timeframe", ["5m", "15m", "1hr", "4hr", "1d", "1w"], index=1)
     lookback = st.select_slider("Lookback Period", ["1mo", "3mo", "6mo", "1y", "2y"], value="3mo")
 
-# --- MAIN DASHBOARD LAYOUT ---
+# --- MAIN DASHBOARD HEADER & SYNTHESIS PANEL ---
 st.title("XAU/USD Advanced Quantitative Analytics")
 
 df, feed_source, notice = fetch_data(asset, interval, lookback)
@@ -229,12 +227,27 @@ if notice:
 if not df.empty:
     adf_result = adfuller(df['Close'].dropna())
     p_value = adf_result[1]
+    
+    current_price = float(df['Close'].iloc[-1])
+    rolling_vol_calc = df['Close'].pct_change().rolling(21).std() * np.sqrt(252)
+    current_vol = float(rolling_vol_calc.iloc[-1]) if not np.isnan(rolling_vol_calc.iloc[-1]) else 0.15
+    _, _, _, _, bullish_p, bearish_p = compute_monte_carlo(current_price, current_vol)
 
     # Metrics Summary Bar
     k1, k2, k3 = st.columns(3)
-    k1.metric("Spot Price", f"${float(df['Close'].iloc[-1]):.2f}")
+    k1.metric("Spot Price", f"${current_price:.2f}")
     k2.metric("Stationarity (ADF p-value)", f"{p_value:.4f}")
     k3.metric("Data Feed Status", feed_source)
+
+    # --- REPOSITIONED: COMPOSITE QUANTITATIVE SYNTHESIS & ENTRY BIAS ---
+    st.subheader("Composite Quantitative Synthesis & Entry Bias")
+    bias_score = "BULLISH (LONG BIAS)" if bullish_p > 60 else ("BEARISH (SHORT BIAS)" if bearish_p > 60 else "NEUTRAL / CONSOLIDATION")
+    st.info(f"**Synthesized Quantitative Directional Bias:** **{bias_score}** \n\n"
+            f"• *Monte Carlo Terminal Probability:* **{bullish_p:.1f}% Bullish** vs **{bearish_p:.1f}% Bearish**\n"
+            f"• *Macro Condition:* Evaluated against DXY, Silver, and Real Yield Tunnels\n"
+            f"• *Structural Filter:* SMC Fair Value Gaps (FVG) and SARIMA channel boundaries active.")
+
+    st.markdown("---")
 
     # --- REAL-TIME TRADINGVIEW CHARTS ---
     st.subheader("Real-Time Multi-Asset Charts (XAU/USD vs. DXY)")
@@ -328,9 +341,8 @@ if not df.empty:
     fig = go.Figure()
     fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Market Data"))
 
-    # Overlay SMC Fair Value Gaps
     fvgs = detect_fair_value_gaps(df)
-    for fvg in fvgs[-5:]:  # Plot last 5 detected imbalances
+    for fvg in fvgs[-5:]:
         color = "rgba(0, 255, 0, 0.15)" if fvg['type'] == 'Bullish' else "rgba(255, 0, 0, 0.15)"
         fig.add_shape(
             type="rect",
@@ -385,8 +397,6 @@ if not df.empty:
         st.plotly_chart(fig_vol, use_container_width=True)
 
     with col_mc2:
-        current_price = float(df['Close'].iloc[-1])
-        current_vol = float(rolling_vol.iloc[-1]) if not np.isnan(rolling_vol.iloc[-1]) else 0.15
         sims, median, upper, lower, bullish_p, bearish_p = compute_monte_carlo(current_price, current_vol)
         
         p_col1, p_col2 = st.columns(2)
@@ -401,14 +411,6 @@ if not df.empty:
         fig_mc.add_trace(go.Scatter(y=lower, mode='lines', line=dict(color='red', dash='dash'), name="-2σ Channel"))
         fig_mc.update_layout(title="30-Step Forward Monte Carlo Paths", template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR)
         st.plotly_chart(fig_mc, use_container_width=True)
-
-    # --- COMPOSITE QUANTITATIVE SYNTHESIS PANEL ---
-    st.subheader("Composite Quantitative Synthesis & Entry Bias")
-    bias_score = "BULLISH (LONG BIAS)" if bullish_p > 60 else ("BEARISH (SHORT BIAS)" if bearish_p > 60 else "NEUTRAL / CONSOLIDATION")
-    st.info(f"**Synthesized Quantitative Directional Bias:** **{bias_score}** \n"
-            f"• *Monte Carlo Metric:* {bullish_p:.1f}% Bullish vs {bearish_p:.1f}% Bearish\n"
-            f"• *Macro Condition:* Evaluated against DXY, Silver, and Real Yield Tunnels\n"
-            f"• *Structural Filter:* SMC Fair Value Gaps (FVG) and SARIMA channel boundaries active.")
 
 else:
     st.error("Data stream unavailable. Please verify Streamlit Secrets setup or sidebar parameters.")

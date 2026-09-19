@@ -522,17 +522,10 @@ if not df.empty:
     # --- 2x2 CARD GRID LAYOUT FOR ANALYTICAL MODULES ---
     row1_col1, row1_col2 = st.columns(2)
 
-    # MODULE 1: SARIMA FORECAST & SMC FVG DETECTOR (Card 1)
+    # MODULE 1: SARIMA PRICE PATH & OUT-OF-SAMPLE FORECAST
     with row1_col1:
-        st.markdown("""
-        <div style="background-color: #161B22; padding: 16px; border-radius: 8px; border: 1px solid #30363d; min-height: 440px; margin-bottom: 20px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h4 style="margin: 0; color: #ffffff; font-size: 14px;">📈 SARIMA PRICE PATH & OUT-OF-SAMPLE FORECAST</h4>
-                <span style="font-size: 11px; color: #8b949e; background: #21262d; padding: 2px 6px; border-radius: 4px;">95% Confidence Interval</span>
-            </div>
-            <p style="font-size: 11px; color: #8b949e; margin-bottom: 10px;">Projected directional price channels calculated using conditional expectation and historical autoregressive orders.</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("### SARIMA PRICE PATH & OUT-OF-SAMPLE FORECAST")
+        st.markdown("Projected directional price channels calculated using conditional expectation and historical autoregressive orders.")
 
         if show_sarima:
             mean_forecast, conf_int, best_order, best_aic = auto_fit_sarima(df['Close'])
@@ -561,22 +554,15 @@ if not df.empty:
                     fill='toself', fillcolor='rgba(0, 229, 255, 0.1)',
                     line=dict(color='rgba(255,255,255,0)'), name="95% CI"
                 ))
-            fig.update_layout(template="plotly_dark", plot_bgcolor="#161B22", paper_bgcolor="#161B22", height=300, margin=dict(l=0, r=0, t=30, b=0))
+            fig.update_layout(template="plotly_dark", plot_bgcolor="#161B22", paper_bgcolor="#161B22", height=320, margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("SARIMA module disabled via sidebar toggle.")
 
-    # MODULE 2: DIMENSIONALITY REDUCTION & PCA ANALYSIS (Card 2)
+    # MODULE 2: PCA DIMENSIONALITY REDUCTION
     with row1_col2:
-        st.markdown("""
-        <div style="background-color: #161B22; padding: 16px; border-radius: 8px; border: 1px solid #30363d; min-height: 440px; margin-bottom: 20px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h4 style="margin: 0; color: #ffffff; font-size: 14px;">📊 PCA DIMENSIONALITY REDUCTION</h4>
-                <span style="font-size: 11px; color: #8b949e; background: #21262d; padding: 2px 6px; border-radius: 4px;">Explained Var: 78.4%</span>
-            </div>
-            <p style="font-size: 11px; color: #8b949e; margin-bottom: 10px;">Decomposition of yields, USD index (DXY), and commodities into orthogonal components PC1 & PC2.</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("### PCA DIMENSIONALITY REDUCTION")
+        st.markdown("Decomposition of yields, USD index (DXY), and commodities into orthogonal components PC1 & PC2.")
 
         if show_pca:
             components_pca, var_ratio = run_pca(df, n_components=2)
@@ -589,17 +575,10 @@ if not df.empty:
 
     row2_col1, row2_col2 = st.columns(2)
 
-    # MODULE 3: LINEAR REGRESSION VS S&P 500 BENCHMARK (Card 3)
+    # MODULE 3: LINEAR RETURN REGRESSION & RESIDUAL FIT
     with row2_col1:
-        st.markdown("""
-        <div style="background-color: #161B22; padding: 16px; border-radius: 8px; border: 1px solid #30363d; min-height: 440px; margin-bottom: 20px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h4 style="margin: 0; color: #ffffff; font-size: 14px;">📉 LINEAR RETURN REGRESSION & RESIDUAL FIT</h4>
-                <span style="font-size: 11px; color: #8b949e; background: #21262d; padding: 2px 6px; border-radius: 4px;">R² = 0.412 | Beta: 0.74</span>
-            </div>
-            <p style="font-size: 11px; color: #8b949e; margin-bottom: 10px;">Scatter representation of daily log returns against market index with fitted OLS trendline and residual error dispersion.</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("### LINEAR RETURN REGRESSION & RESIDUAL FIT")
+        st.markdown("Scatter representation of daily log returns against market index with fitted OLS trendline and residual error dispersion.")
 
         if show_reg:
             market_ret, asset_ret, fitted, residuals = run_regression(df)
@@ -615,17 +594,10 @@ if not df.empty:
         else:
             st.info("Regression module disabled via sidebar toggle.")
 
-    # MODULE 4: GARCH VOLATILITY & MONTE CARLO PROBABILITY REPORT (Card 4)
+    # MODULE 4: GARCH VOLATILITY & MONTE CARLO ENVELOPE
     with row2_col2:
-        st.markdown("""
-        <div style="background-color: #161B22; padding: 16px; border-radius: 8px; border: 1px solid #30363d; min-height: 440px; margin-bottom: 20px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h4 style="margin: 0; color: #ffffff; font-size: 14px;">📊 GARCH VOLATILITY & MONTE CARLO ENVELOPE</h4>
-                <span style="font-size: 11px; color: #8b949e; background: #21262d; padding: 2px 6px; border-radius: 4px;">1,000 Stochastic Iterations</span>
-            </div>
-            <p style="font-size: 11px; color: #8b949e; margin-bottom: 10px;">Time-varying volatility clusters and future probability distribution envelope under Geometric Brownian Motion.</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("### GARCH VOLATILITY & MONTE CARLO ENVELOPE")
+        st.markdown("Time-varying volatility clusters and future probability distribution envelope under Geometric Brownian Motion.")
 
         if show_garch_mc:
             rolling_vol = df['Close'].pct_change().rolling(21).std() * np.sqrt(252)

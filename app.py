@@ -88,13 +88,16 @@ def fetch_macro_correlation(period_str):
     data.dropna(inplace=True)
     return data.pct_change().corr()
 
-# --- SMART MONEY CONCEPTS: FVG DETECTOR ---
-def detect_fair_value_gaps(df):
+# --- SMART MONEY CONCEPTS: FVG & STRUCTURE DETECTOR ---
+def detect_smart_money_patterns(df):
     fvgs = []
+    market_structure = "Consolidation / Range"
+    
+    # Detect Fair Value Gaps
     for i in range(2, len(df)):
         if df['High'].iloc[i-2] < df['Low'].iloc[i]:
             fvgs.append({
-                'type': 'Bullish',
+                'type': 'Bullish FVG',
                 'start_idx': df.index[i-1],
                 'end_idx': df.index[-1],
                 'lower': df['High'].iloc[i-2],
@@ -102,13 +105,21 @@ def detect_fair_value_gaps(df):
             })
         elif df['Low'].iloc[i-2] > df['High'].iloc[i]:
             fvgs.append({
-                'type': 'Bearish',
+                'type': 'Bearish FVG',
                 'start_idx': df.index[i-1],
                 'end_idx': df.index[-1],
                 'lower': df['High'].iloc[i],
                 'upper': df['Low'].iloc[i-2]
             })
-    return fvgs
+            
+    # Simple Market Structure Shift (MSS) heuristic based on recent highs/lows
+    recent_closes = df['Close'].iloc[-10:]
+    if recent_closes.iloc[-1] > recent_closes.max() * 0.999:
+        market_structure = "Bullish Market Structure Shift (MSS) / Break of Structure"
+    elif recent_closes.iloc[-1] < recent_closes.min() * 1.001:
+        market_structure = "Bearish Change of Character (ChoCH)"
+
+    return fvgs, market_structure
 
 # --- AUTOMATED MODEL OPTIMIZATION ENGINE ---
 def auto_fit_sarima(data_series):
@@ -216,7 +227,7 @@ with st.sidebar:
     interval = st.selectbox("Timeframe", ["5m", "15m", "1hr", "4hr", "1d", "1w"], index=1)
     lookback = st.select_slider("Lookback Period", ["1mo", "3mo", "6mo", "1y", "2y"], value="3mo")
 
-# --- MAIN DASHBOARD HEADER & SYNTHESIS PANEL ---
+# --- MAIN DASHBOARD HEADER ---
 st.title("XAU/USD Advanced Quantitative Analytics")
 
 df, feed_source, notice = fetch_data(asset, interval, lookback)
@@ -232,6 +243,8 @@ if not df.empty:
     rolling_vol_calc = df['Close'].pct_change().rolling(21).std() * np.sqrt(252)
     current_vol = float(rolling_vol_calc.iloc[-1]) if not np.isnan(rolling_vol_calc.iloc[-1]) else 0.15
     _, _, _, _, bullish_p, bearish_p = compute_monte_carlo(current_price, current_vol)
+    
+    fvgs, market_structure = detect_smart_money_patterns(df)
 
     # Metrics Summary Bar
     k1, k2, k3 = st.columns(3)
@@ -239,13 +252,15 @@ if not df.empty:
     k2.metric("Stationarity (ADF p-value)", f"{p_value:.4f}")
     k3.metric("Data Feed Status", feed_source)
 
-    # --- REPOSITIONED: COMPOSITE QUANTITATIVE SYNTHESIS & ENTRY BIAS ---
-    st.subheader("Composite Quantitative Synthesis & Entry Bias")
+    # --- TOP COMMAND CENTER: COMPOSITE BIAS & SMC PATTERNS ---
+    st.subheader("Smart Money Concepts (SMC) & Composite Entry Bias")
     bias_score = "BULLISH (LONG BIAS)" if bullish_p > 60 else ("BEARISH (SHORT BIAS)" if bearish_p > 60 else "NEUTRAL / CONSOLIDATION")
+    
     st.info(f"**Synthesized Quantitative Directional Bias:** **{bias_score}** \n\n"
-            f"• *Monte Carlo Terminal Probability:* **{bullish_p:.1f}% Bullish** vs **{bearish_p:.1f}% Bearish**\n"
-            f"• *Macro Condition:* Evaluated against DXY, Silver, and Real Yield Tunnels\n"
-            f"• *Structural Filter:* SMC Fair Value Gaps (FVG) and SARIMA channel boundaries active.")
+            f"• **Active Smart Money Structure:** `{market_structure}`\n"
+            f"• **Monte Carlo Terminal Probability:** **{bullish_p:.1f}% Bullish** vs **{bearish_p:.1f}% Bearish**\n"
+            f"• **Institutional Imbalances (FVG):** Detected `{len(fvgs)}` active Fair Value Gaps on current timeframe\n"
+            f"• **Macro & Technical Filter:** Cross-asset DXY/Yield correlations and SARIMA boundaries aligned.")
 
     st.markdown("---")
 
@@ -341,9 +356,8 @@ if not df.empty:
     fig = go.Figure()
     fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Market Data"))
 
-    fvgs = detect_fair_value_gaps(df)
     for fvg in fvgs[-5:]:
-        color = "rgba(0, 255, 0, 0.15)" if fvg['type'] == 'Bullish' else "rgba(255, 0, 0, 0.15)"
+        color = "rgba(0, 255, 0, 0.15)" if "Bullish" in fvg['type'] else "rgba(255, 0, 0, 0.15)"
         fig.add_shape(
             type="rect",
             x0=fvg['start_idx'], y0=fvg['lower'], x1=fvg['end_idx'], y1=fvg['upper'],

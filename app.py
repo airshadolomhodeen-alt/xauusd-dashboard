@@ -272,7 +272,6 @@ def auto_fit_sarima(data_series):
 
     if best_results is not None:
         forecast = best_results.get_forecast(steps=30)
-        # Residual diagnostic Ljung-Box p-value
         ljung_res = acorr_ljungbox(best_results.resid, lags=[10], return_df=True)
         lb_pvalue = float(ljung_res['lb_pvalue'].iloc[0])
         return forecast.predicted_mean, forecast.conf_int(alpha=0.05), best_order, best_aic, lb_pvalue
@@ -356,7 +355,6 @@ def run_regression(df_input):
     fitted = model.predict(X)
     residuals = y - fitted
     
-    # Residual p-value check using Ljung-Box
     lb_res = acorr_ljungbox(residuals.flatten(), lags=[10], return_df=True)
     reg_lb_pval = float(lb_res['lb_pvalue'].iloc[0])
     
@@ -415,7 +413,6 @@ with header_col2:
         const options = { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true };
         document.getElementById('pht-clock').innerText = new Intl.DateTimeFormat('en-US', options).format(now);
         
-        // 4H Countdown calculation (UTC intervals: 00, 04, 08, 12, 16, 20)
         const utcNow = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
         const currentHour = utcNow.getUTCHours();
         const nextH = Math.floor(currentHour / 4) * 4 + 4;
@@ -486,7 +483,6 @@ if not df.empty:
     # --- TOP COMMAND CENTER: 4H CLOSED-BAR QUANTITATIVE VERDICT ---
     st.subheader("Quantitative Diagnosis & Execution Verdict (4H Candle Anchor)")
     
-    # Determine execution gate status badge
     gate_passed = (bullish_p_4h > 60.0 or bearish_p_4h > 60.0) and (auc_4h_score > 0.60)
     gate_badge = '<span style="background: #238636; color: #ffffff; padding: 3px 8px; border-radius: 4px; font-size: 11px;">GATE PASSED (CONFIDENT)</span>' if gate_passed else '<span style="background: #9e6a03; color: #ffffff; padding: 3px 8px; border-radius: 4px; font-size: 11px;">STAND ASIDE / NEUTRAL</span>'
 
@@ -587,20 +583,29 @@ if not df.empty:
         """
         components.html(tv_dxy_html, height=475)
 
-    # --- CROSS-ASSET MACRO CORRELATION HEATMAP (WITH THRESHOLD HIGHLIGHTING) ---
+    # --- CROSS-ASSET MACRO CORRELATION HEATMAP (FIXED TEXTTEMPLATE) ---
     st.subheader("Cross-Asset Rolling Return Correlation Matrix (Macro Drivers)")
     try:
         corr_matrix = fetch_macro_correlation(lookback)
         if not corr_matrix.empty:
-            # Highlight cells where absolute correlation > 0.70 by modifying text or visual cues
+            text_vals = []
+            for row in corr_matrix.values:
+                row_text = []
+                for val in row:
+                    cell_str = f"{val:.2f}"
+                    if abs(val) > 0.7:
+                        cell_str += "<br>(High Coupling)"
+                    row_text.append(cell_str)
+                text_vals.append(row_text)
+
             fig_corr = go.Figure(data=go.Heatmap(
                 z=corr_matrix.values,
                 x=corr_matrix.columns,
                 y=corr_matrix.index,
                 colorscale='RdBu',
                 zmin=-1, zmax=1,
-                text=np.round(corr_matrix.values, 2),
-                texttemplate="%{text}<br>" + np.where(np.abs(corr_matrix.values) > 0.7, "(High Coupling)", ""),
+                text=text_vals,
+                texttemplate="%{text}",
                 textfont={"size": 12}
             ))
             fig_corr.update_layout(

@@ -276,24 +276,43 @@ def run_pca(df_input, n_components=2):
 
 def run_regression(df_input):
     asset_returns = df_input['Close'].pct_change().dropna()
+    X, y = None, None
     try:
         sp500 = yf.download("^GSPC", period="1y", interval="1d", progress=False)
-        if isinstance(sp500.columns, pd.MultiIndex):
-            sp500_close = sp500['Close'].squeeze()
-        else:
-            sp500_close = sp500['Close']
-        market_returns = sp500_close.pct_change().dropna()
+        if not sp500.empty:
+            if isinstance(sp500.columns, pd.MultiIndex):
+                sp500_close = sp500['Close'].squeeze()
+            else:
+                sp500_close = sp500['Close']
+            market_returns = sp500_close.pct_change().dropna()
 
-        combined = pd.DataFrame({
-            'Asset': asset_returns,
-            'Market': market_returns
-        }).dropna()
-
-        X = combined['Market'].values.reshape(-1, 1)
-        y = combined['Asset'].values.reshape(-1, 1)
+            combined = pd.DataFrame({
+                'Asset': asset_returns,
+                'Market': market_returns
+            }).dropna()
+            
+            if not combined.empty:
+                X = combined['Market'].values.reshape(-1, 1)
+                y = combined['Asset'].values.reshape(-1, 1)
     except Exception:
-        X = asset_returns.values.reshape(-1, 1)
-        y = asset_returns.values.reshape(-1, 1)
+        pass
+
+    if X is None or y is None or len(X) == 0 or len(y) == 0:
+        clean_asset = asset_returns.dropna()
+        if len(clean_asset) > 1:
+            X = clean_asset.values[:-1].reshape(-1, 1)
+            y = clean_asset.values[1:].reshape(-1, 1)
+        else:
+            X = np.array([[0.0], [1.0]])
+            y = np.array([[0.0], [1.0]])
+
+    mask = ~np.isnan(X).any(axis=1) & ~np.isnan(y).any(axis=1)
+    X = X[mask]
+    y = y[mask]
+    
+    if len(X) < 2:
+        X = np.array([[0.0], [1.0]])
+        y = np.array([[0.0], [1.0]])
 
     model = LinearRegression()
     model.fit(X, y)
@@ -585,7 +604,7 @@ if not df.empty:
             fig_reg = go.Figure()
             fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=asset_ret.flatten(), mode='markers', name="Returns", marker=dict(color=SIGNAL)))
             fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=fitted.flatten(), mode='lines', name="Fitted OLS Line", line=dict(color=PRIMARY)))
-            fig_reg.update_layout(title="Asset Returns vs S&P 500 Returns", template="plotly_dark", plot_bgcolor="#161B22", paper_bgcolor="#161B22", height=200, margin=dict(l=0, r=0, t=30, b=0))
+            fig_reg.update_layout(title="Asset Returns vs Market Returns", template="plotly_dark", plot_bgcolor="#161B22", paper_bgcolor="#161B22", height=200, margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig_reg, use_container_width=True)
 
             fig_res = go.Figure(data=go.Scatter(x=fitted.flatten(), y=residuals.flatten(), mode='markers', marker=dict(color='gray')))

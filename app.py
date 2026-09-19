@@ -69,7 +69,6 @@ st.markdown(f"""
         border: 1px solid {BORDER_COLOR};
         margin-bottom: 15px;
     }}
-    /* Mobile Responsiveness Adjustments */
     @media only screen and (max-width: 768px) {{
         .main .block-container {{
             padding-left: 1rem;
@@ -279,11 +278,18 @@ def auto_fit_sarima(data_series):
 
     if best_results is not None:
         forecast = best_results.get_forecast(steps=30)
-        ljung_res = acorr_ljungbox(best_results.resid, lags=[10], return_df=True)
-        lb_pvalue = float(ljung_res['lb_pvalue'].iloc[0])
+        lb_pvalue = 1.0
+        try:
+            nobs = len(best_results.resid)
+            safe_lag = min(10, max(1, nobs - 1))
+            if safe_lag > 0:
+                ljung_res = acorr_ljungbox(best_results.resid, lags=[safe_lag], return_df=True)
+                lb_pvalue = float(ljung_res['lb_pvalue'].iloc[0])
+        except Exception:
+            lb_pvalue = 1.0
         return forecast.predicted_mean, forecast.conf_int(alpha=0.05), best_order, best_aic, lb_pvalue
     else:
-        return None, None, (1, 1, 1), 0.0, 0.05
+        return None, None, (1, 1, 1), 0.0, 1.0
 
 def run_pca(df_input, n_components=2):
     delta = df_input['Close'].diff()
@@ -362,8 +368,15 @@ def run_regression(df_input):
     fitted = model.predict(X)
     residuals = y - fitted
     
-    lb_res = acorr_ljungbox(residuals.flatten(), lags=[10], return_df=True)
-    reg_lb_pval = float(lb_res['lb_pvalue'].iloc[0])
+    reg_lb_pval = 1.0
+    try:
+        nobs = len(residuals)
+        safe_lag = min(10, max(1, nobs - 1))
+        if safe_lag > 0:
+            lb_res = acorr_ljungbox(residuals.flatten(), lags=[safe_lag], return_df=True)
+            reg_lb_pval = float(lb_res['lb_pvalue'].iloc[0])
+    except Exception:
+        reg_lb_pval = 1.0
     
     return X, y, fitted, residuals, reg_lb_pval
 

@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 import concurrent.futures
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.stattools import adfuller
+from statsmodels.stats.diagnostic import acorr_ljungbox
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -24,7 +25,7 @@ def check_password():
     def password_entered():
         if st.session_state["password"] == "January16@&1989":
             st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Clear password from session state
+            del st.session_state["password"]
         else:
             st.session_state["password_correct"] = False
 
@@ -40,15 +41,38 @@ def check_password():
     else:
         return True
 
-# Enforce password protection before rendering dashboard
 if not check_password():
     st.stop()
 
 BG_COLOR = "#0E1117"
+CARD_BG = "#161B22"
+BORDER_COLOR = "#30363d"
 PRIMARY = "#FFD700"
 SIGNAL = "#00E5FF"
 
-# --- DATA INGESTION ENGINE (TWELVE DATA SDK + YFINANCE FALLBACK) ---
+# --- CUSTOM STYLING & UNIFIED DARK UI CONTAINERS ---
+st.markdown(f"""
+<style>
+    .stApp {{
+        background-color: {BG_COLOR};
+    }}
+    div.stMetric {{
+        background-color: {CARD_BG};
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid {BORDER_COLOR};
+    }}
+    .dashboard-card {{
+        background-color: {CARD_BG};
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid {BORDER_COLOR};
+        margin-bottom: 20px;
+    }}
+</style>
+""", unsafe_allow_html=True)
+
+# --- DATA INGESTION ENGINE ---
 @st.cache_data(ttl=15)
 def fetch_data(ticker_symbol, interval_str, lookback_str):
     df = pd.DataFrame()
@@ -57,7 +81,6 @@ def fetch_data(ticker_symbol, interval_str, lookback_str):
 
     td_interval_map = {"5m": "5min", "15m": "15min", "1hr": "1h", "4hr": "4h", "1d": "1day", "1w": "1week"}
     td_interval = td_interval_map.get(interval_str, "15min")
-
     api_key = st.secrets.get("TWELVE_DATA_API_KEY", "")
     
     if api_key:
@@ -95,9 +118,8 @@ def fetch_data(ticker_symbol, interval_str, lookback_str):
 
     return df, feed_source, notice
 
-# --- 4H RESAMPLER FOR CLOSED-BAR DIAGNOSTICS (SAFE AGGREGATION DICT) ---
+# --- 4H RESAMPLER FOR CLOSED-BAR DIAGNOSTICS ---
 def get_4h_closed_data(df_input):
-    """Resamples input data to 4-Hour bars and returns fully completed/closed bars only."""
     if df_input.empty:
         return df_input
     
@@ -125,7 +147,7 @@ def get_4h_closed_data(df_input):
         return df_4h.iloc[:-1]
     return df_4h
 
-# --- HIGH-PERFORMANCE PARALLEL MACRO CORRELATION ENGINE (10/10 OPTIMIZED) ---
+# --- HIGH-PERFORMANCE PARALLEL MACRO CORRELATION ENGINE ---
 @st.cache_data(ttl=300)
 def fetch_macro_correlation(period_str):
     tickers = {
@@ -169,24 +191,24 @@ def detect_smart_money_patterns(df_input):
                 'type': 'Bullish FVG',
                 'start_idx': df_input.index[i-1],
                 'end_idx': df_input.index[-1],
-                'lower': df_input['High'].iloc[i-2],
-                'upper': df_input['Low'].iloc[i]
+                'lower': float(df_input['High'].iloc[i-2]),
+                'upper': float(df_input['Low'].iloc[i])
             })
         elif df_input['Low'].iloc[i-2] > df_input['High'].iloc[i]:
             fvgs.append({
                 'type': 'Bearish FVG',
                 'start_idx': df_input.index[i-1],
                 'end_idx': df_input.index[-1],
-                'lower': df_input['High'].iloc[i],
-                'upper': df_input['Low'].iloc[i-2]
+                'lower': float(df_input['High'].iloc[i]),
+                'upper': float(df_input['Low'].iloc[i-2])
             })
             
     recent_closes = df_input['Close'].iloc[-10:]
     if len(recent_closes) > 0:
         if recent_closes.iloc[-1] > recent_closes.max() * 0.999:
-            market_structure = "Bullish Market Structure Shift (MSS) / Break of Structure"
+            market_structure = "Bullish Trend / Break of Structure"
         elif recent_closes.iloc[-1] < recent_closes.min() * 1.001:
-            market_structure = "Bearish Change of Character (ChoCH)"
+            market_structure = "Bearish Trend / Change of Character"
 
     return fvgs, market_structure
 
@@ -250,9 +272,12 @@ def auto_fit_sarima(data_series):
 
     if best_results is not None:
         forecast = best_results.get_forecast(steps=30)
-        return forecast.predicted_mean, forecast.conf_int(alpha=0.05), best_order, best_aic
+        # Residual diagnostic Ljung-Box p-value
+        ljung_res = acorr_ljungbox(best_results.resid, lags=[10], return_df=True)
+        lb_pvalue = float(ljung_res['lb_pvalue'].iloc[0])
+        return forecast.predicted_mean, forecast.conf_int(alpha=0.05), best_order, best_aic, lb_pvalue
     else:
-        return None, None, (1, 1, 1), 0.0
+        return None, None, (1, 1, 1), 0.0, 0.05
 
 def run_pca(df_input, n_components=2):
     delta = df_input['Close'].diff()
@@ -330,7 +355,12 @@ def run_regression(df_input):
     model.fit(X, y)
     fitted = model.predict(X)
     residuals = y - fitted
-    return X, y, fitted, residuals
+    
+    # Residual p-value check using Ljung-Box
+    lb_res = acorr_ljungbox(residuals.flatten(), lags=[10], return_df=True)
+    reg_lb_pval = float(lb_res['lb_pvalue'].iloc[0])
+    
+    return X, y, fitted, residuals, reg_lb_pval
 
 def compute_monte_carlo(current_price, volatility, steps=30, paths=100):
     dt = 1/252
@@ -345,9 +375,15 @@ def compute_monte_carlo(current_price, volatility, steps=30, paths=100):
     bullish_prob = (bullish_count / paths) * 100
     bearish_prob = 100 - bullish_prob
 
-    return simulations, np.median(simulations, axis=1), np.percentile(simulations, 97.5, axis=1), np.percentile(simulations, 2.5, axis=1), bullish_prob, bearish_prob
+    median_path = np.median(simulations, axis=1)
+    p25_path = np.percentile(simulations, 25, axis=1)
+    p75_path = np.percentile(simulations, 75, axis=1)
+    upper_2sig = np.percentile(simulations, 97.5, axis=1)
+    lower_2sig = np.percentile(simulations, 2.5, axis=1)
 
-# --- SIDEBAR CONTROL PANEL WITH TOGGLES ---
+    return simulations, median_path, p25_path, p75_path, upper_2sig, lower_2sig, bullish_prob, bearish_prob
+
+# --- SIDEBAR CONTROL PANEL ---
 with st.sidebar:
     st.header("MARKET & FEED CONFIGURATION")
     asset = st.selectbox("Asset Selector", ["XAUUSD", "EURUSD", "GBPUSD"])
@@ -361,7 +397,7 @@ with st.sidebar:
     show_reg = st.toggle("Return Regression", value=True)
     show_garch_mc = st.toggle("GARCH(1,1) Volatility", value=True)
 
-# --- MAIN DASHBOARD HEADER & LIVE PHT CLOCK BANNER ---
+# --- MAIN DASHBOARD HEADER & LIVE CLOCKS ---
 header_col1, header_col2 = st.columns([2, 1])
 
 with header_col1:
@@ -369,26 +405,39 @@ with header_col1:
 
 with header_col2:
     pht_clock_html = """
-    <div style="font-family: sans-serif; color: #FFD700; font-size: 13px; font-weight: bold; background: #161B22; padding: 12px; border-radius: 6px; text-align: right; border: 1px solid #30363d; margin-top: 15px;">
-        🇵🇭 PHT Live: <span id="pht-clock" style="color: #00E5FF; font-size: 14px;">Loading...</span>
+    <div style="font-family: sans-serif; color: #FFD700; font-size: 12px; font-weight: bold; background: #161B22; padding: 10px; border-radius: 6px; text-align: right; border: 1px solid #30363d; margin-top: 10px;">
+        🇵🇭 PHT Live: <span id="pht-clock" style="color: #00E5FF;">Loading...</span><br>
+        ⏳ Next 4H Candle Close: <span id="candle-countdown" style="color: #FFD700;">Calculating...</span>
     </div>
     <script>
-    function updateClock() {
-        const options = { 
-            timeZone: 'Asia/Manila', 
-            year: 'numeric', 
-            month: 'short', 
-            day: 'numeric', 
-            hour: 'numeric', 
-            minute: '2-digit', 
-            second: '2-digit', 
-            hour12: true 
-        };
-        const formatter = new Intl.DateTimeFormat('en-US', options);
-        document.getElementById('pht-clock').innerText = formatter.format(new Date());
+    function updateClocks() {
+        const now = new Date();
+        const options = { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true };
+        document.getElementById('pht-clock').innerText = new Intl.DateTimeFormat('en-US', options).format(now);
+        
+        // 4H Countdown calculation (UTC intervals: 00, 04, 08, 12, 16, 20)
+        const utcNow = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
+        const currentHour = utcNow.getUTCHours();
+        const nextH = Math.floor(currentHour / 4) * 4 + 4;
+        const targetUtc = new Date(utcNow);
+        if (nextH >= 24) {
+            targetUtc.setUTCDate(targetUtc.getUTCDate() + 1);
+            targetUtc.setUTCHours(0, 0, 0, 0);
+        } else {
+            targetUtc.setUTCHours(nextH, 0, 0, 0);
+        }
+        const diffMs = targetUtc - utcNow;
+        if (diffMs > 0) {
+            const hrs = Math.floor((diffMs % 86400000) / 3600000);
+            const mins = Math.floor((diffMs % 3600000) / 60000);
+            const secs = Math.floor((diffMs % 60000) / 1000);
+            document.getElementById('candle-countdown').innerText = hrs + "h " + mins + "m " + secs + "s";
+        } else {
+            document.getElementById('candle-countdown').innerText = "Closing / Syncing...";
+        }
     }
-    setInterval(updateClock, 1000);
-    updateClock();
+    setInterval(updateClocks, 1000);
+    updateClocks();
     </script>
     """
     components.html(pht_clock_html, height=65)
@@ -414,7 +463,7 @@ if not df.empty:
         vol_4h_calc = df_4h_closed['Close'].pct_change().rolling(21).std() * np.sqrt(252)
         vol_4h = float(vol_4h_calc.iloc[-1]) if not np.isnan(vol_4h_calc.iloc[-1]) else current_vol
         
-        _, _, _, _, bullish_p_4h, bearish_p_4h = compute_monte_carlo(price_4h_closed, vol_4h)
+        _, _, _, _, _, _, bullish_p_4h, bearish_p_4h = compute_monte_carlo(price_4h_closed, vol_4h)
         fvgs_4h, structure_4h = detect_smart_money_patterns(df_4h_closed)
         auc_4h_score = compute_4h_roc_auc(df_4h_closed)
         last_4h_time = df_4h_closed.index[-1].strftime('%Y-%m-%d %H:%M UTC')
@@ -424,46 +473,60 @@ if not df.empty:
         auc_4h_score = 0.50
         last_4h_time = "N/A"
 
-    # Metrics Summary Bar (Expanded with 4H ROC-AUC)
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Spot Price", f"${current_price:.2f}")
-    k2.metric("Stationarity (ADF p-value)", f"{p_value:.4f}")
-    k3.metric("4H Classifier ROC-AUC", f"{auc_4h_score:.3f}")
-    k4.metric("Data Feed Status", feed_source)
+    # --- TOP SUMMARY METRIC BAR / HEADER PANEL ---
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Spot Price", f"${current_price:.2f}")
+    m2.metric("24h Volatility (Ann.)", f"{current_vol*100:.2f}%")
+    m3.metric("Model Bias", f"{bullish_p_4h:.1f}% Bullish")
+    m4.metric("Active Regime", structure_4h.split('/')[0])
+    m5.metric("4H Timeframe Sync", "OK 🟢")
+
+    st.markdown("---")
 
     # --- TOP COMMAND CENTER: 4H CLOSED-BAR QUANTITATIVE VERDICT ---
     st.subheader("Quantitative Diagnosis & Execution Verdict (4H Candle Anchor)")
     
+    # Determine execution gate status badge
+    gate_passed = (bullish_p_4h > 60.0 or bearish_p_4h > 60.0) and (auc_4h_score > 0.60)
+    gate_badge = '<span style="background: #238636; color: #ffffff; padding: 3px 8px; border-radius: 4px; font-size: 11px;">GATE PASSED (CONFIDENT)</span>' if gate_passed else '<span style="background: #9e6a03; color: #ffffff; padding: 3px 8px; border-radius: 4px; font-size: 11px;">STAND ASIDE / NEUTRAL</span>'
+
     if bullish_p_4h > 60:
         verdict_action = "HIGH-PROBABILITY BUY (LONG ENTRY SIGNAL)"
-        verdict_desc = "The 4-hour closed candle model confirms statistical and structural upward alignment. Monte Carlo pathways on the closed 4H bar have cleared the 60% confidence threshold."
+        verdict_desc = "The 4-hour closed candle model confirms statistical and structural upward alignment."
         verdict_color = "#00E5FF"
     elif bearish_p_4h > 60:
         verdict_action = "HIGH-PROBABILITY SELL (SHORT ENTRY SIGNAL)"
-        verdict_desc = "The 4-hour closed candle model confirms downside distribution pressure. Terminal probabilities favor a short continuation pattern."
+        verdict_desc = "The 4-hour closed candle model confirms downside distribution pressure."
         verdict_color = "#FF4081"
     else:
         verdict_action = "STAND ASIDE / NEUTRAL REGIME (NO TRADE)"
-        verdict_desc = f"The 4-hour closed bar evaluation shows market equilibrium with a tight split ({bullish_p_4h:.1f}% Bullish vs {bearish_p_4h:.1f}% Bearish). High structural noise (detected {len(fvgs_4h)} active 4H Fair Value Gaps) dictates capital preservation until probabilities skew past 60%."
+        verdict_desc = f"Market equilibrium detected ({bullish_p_4h:.1f}% Bullish vs {bearish_p_4h:.1f}% Bearish). Capital preservation advised."
         verdict_color = "#FFD700"
 
     st.markdown(f"""
-    <div style="background-color: #161B22; padding: 22px; border-radius: 8px; border: 1px solid #30363d; font-family: sans-serif; color: #c9d1d9; margin-bottom: 25px;">
+    <div class="dashboard-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
             <h4 style="margin: 0; color: {verdict_color};">📊 Diagnostic Verdict: {verdict_action}</h4>
-            <span style="font-size: 11px; background: #21262d; color: #8b949e; padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d;">
-                🔒 Evaluated on 4H Close: <strong>{last_4h_time}</strong>
-            </span>
+            <div>
+                {gate_badge}
+                <span style="font-size: 11px; background: #21262d; color: #8b949e; padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; margin-left: 8px;">
+                    🔒 Evaluated on 4H Close: <strong>{last_4h_time}</strong>
+                </span>
+            </div>
         </div>
         <p style="font-size: 14px; line-height: 1.6; margin-bottom: 15px;">
             {verdict_desc}
         </p>
-        <hr style="border: 0; border-top: 1px solid #30363d; margin: 15px 0;">
-        <p style="font-size: 13px; margin: 0; color: #8b949e;">
-            <strong>4-Hour Telemetry Engine:</strong> Active 4H Structure evaluated as <code>{structure_4h}</code> with a simulated terminal distribution of <strong>{bullish_p_4h:.1f}% Bullish</strong> vs <strong>{bearish_p_4h:.1f}% Bearish</strong> (Model ROC-AUC Score: <code>{auc_4h_score:.3f}</code>). The 4H matrix isolated <strong>{len(fvgs_4h)} closed 4H Fair Value Gaps (FVGs)</strong>, locking this stance until the close of the next 4-hour bar.
-        </p>
     </div>
     """, unsafe_allow_html=True)
+
+    # --- EXPANDABLE FVG DETAILS CONTAINER ---
+    with st.expander(f"🔍 View Detailed 4H Fair Value Gaps (FVGs) & Price Boundaries ({len(fvgs_4h)} Detected)", expanded=False):
+        if fvgs_4h:
+            fvg_df = pd.DataFrame(fvgs_4h)
+            st.dataframe(fvg_df[['type', 'start_idx', 'lower', 'upper']], use_container_width=True)
+        else:
+            st.info("No active structural Fair Value Gaps detected on the current 4H closed timeframe window.")
 
     st.markdown("---")
 
@@ -477,7 +540,7 @@ if not df.empty:
     with chart_col1:
         st.markdown("**Gold Spot / U.S. Dollar (OANDA:XAUUSD)**")
         tv_gold_html = f"""
-        <div class="tradingview-widget-container" style="height:460px;width:100%">
+        <div class="dashboard-card" style="padding:0; height:460px;">
           <div id="tradingview_gold" style="height:460px;width:100%"></div>
           <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
           <script type="text/javascript">
@@ -497,12 +560,12 @@ if not df.empty:
           </script>
         </div>
         """
-        components.html(tv_gold_html, height=470)
+        components.html(tv_gold_html, height=475)
 
     with chart_col2:
         st.markdown("**U.S. Dollar Index (CAPITALCOM:DXY)**")
         tv_dxy_html = f"""
-        <div class="tradingview-widget-container" style="height:460px;width:100%">
+        <div class="dashboard-card" style="padding:0; height:460px;">
           <div id="tradingview_dxy" style="height:460px;width:100%"></div>
           <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
           <script type="text/javascript">
@@ -522,13 +585,14 @@ if not df.empty:
           </script>
         </div>
         """
-        components.html(tv_dxy_html, height=470)
+        components.html(tv_dxy_html, height=475)
 
-    # --- CROSS-ASSET MACRO CORRELATION HEATMAP ---
-    st.subheader("Cross-Asset Rolling Return Correlation Matrix (Enhanced Drivers)")
+    # --- CROSS-ASSET MACRO CORRELATION HEATMAP (WITH THRESHOLD HIGHLIGHTING) ---
+    st.subheader("Cross-Asset Rolling Return Correlation Matrix (Macro Drivers)")
     try:
         corr_matrix = fetch_macro_correlation(lookback)
         if not corr_matrix.empty:
+            # Highlight cells where absolute correlation > 0.70 by modifying text or visual cues
             fig_corr = go.Figure(data=go.Heatmap(
                 z=corr_matrix.values,
                 x=corr_matrix.columns,
@@ -536,13 +600,13 @@ if not df.empty:
                 colorscale='RdBu',
                 zmin=-1, zmax=1,
                 text=np.round(corr_matrix.values, 2),
-                texttemplate="%{text}",
-                textfont={"size": 13}
+                texttemplate="%{text}<br>" + np.where(np.abs(corr_matrix.values) > 0.7, "(High Coupling)", ""),
+                textfont={"size": 12}
             ))
             fig_corr.update_layout(
                 template="plotly_dark",
-                plot_bgcolor=BG_COLOR,
-                paper_bgcolor=BG_COLOR,
+                plot_bgcolor=CARD_BG,
+                paper_bgcolor=CARD_BG,
                 height=380,
                 margin=dict(l=0, r=0, t=20, b=0)
             )
@@ -550,18 +614,16 @@ if not df.empty:
     except Exception as e:
         st.warning(f"Unable to render correlation heatmap: {e}")
 
-    # --- 2x2 CARD GRID LAYOUT FOR ANALYTICAL MODULES ---
+    # --- ANALYTICAL MODULES GRID ---
     row1_col1, row1_col2 = st.columns(2)
 
     # MODULE 1: SARIMA PRICE PATH & OUT-OF-SAMPLE FORECAST
     with row1_col1:
         st.markdown("### SARIMA PRICE PATH & OUT-OF-SAMPLE FORECAST")
-        st.markdown("Projected directional price channels calculated using conditional expectation and historical autoregressive orders.")
-
         if show_sarima:
-            mean_forecast, conf_int, best_order, best_aic = auto_fit_sarima(df['Close'])
+            mean_forecast, conf_int, best_order, best_aic, lb_pval = auto_fit_sarima(df['Close'])
             p_opt, d_opt, q_opt = best_order
-            st.caption(f"**Optimization Data:** Stationarity proven ($d={d_opt}$) | Selected ARIMA Model: **({p_opt}, {d_opt}, {q_opt})** (AIC: `{best_aic:.2f}`)")
+            st.caption(f"ARIMA({p_opt}, {d_opt}, {q_opt}) | AIC: `{best_aic:.2f}` | Residual Ljung-Box p-val: `{lb_pval:.3f}`")
 
             fig = go.Figure()
             fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Market Data"))
@@ -585,66 +647,67 @@ if not df.empty:
                     fill='toself', fillcolor='rgba(0, 229, 255, 0.1)',
                     line=dict(color='rgba(255,255,255,0)'), name="95% CI"
                 ))
-            fig.update_layout(template="plotly_dark", plot_bgcolor="#161B22", paper_bgcolor="#161B22", height=320, margin=dict(l=0, r=0, t=30, b=0))
+            fig.update_layout(template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=320, margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("SARIMA module disabled via sidebar toggle.")
 
-    # MODULE 2: PCA DIMENSIONALITY REDUCTION
+    # MODULE 2: PCA DIMENSIONALITY REDUCTION (COLLAPSIBLE ACCORDION)
     with row1_col2:
-        st.markdown("### PCA DIMENSIONALITY REDUCTION")
-        st.markdown("Decomposition of yields, USD index (DXY), and commodities into orthogonal components PC1 & PC2.")
+        with st.expander("### PCA DIMENSIONALITY REDUCTION (Click to Expand)", expanded=True):
+            if show_pca:
+                components_pca, var_ratio = run_pca(df, n_components=2)
+                cum_var = np.sum(var_ratio) * 100
+                st.caption(f"Cumulative Explained Variance: **PC1 + PC2 = {cum_var:.1f}%**")
 
-        if show_pca:
-            components_pca, var_ratio = run_pca(df, n_components=2)
-            fig_pca = go.Figure(data=go.Scatter(x=components_pca[:,0], y=components_pca[:,1], mode='markers', marker=dict(color=PRIMARY)))
-            fig_pca.update_layout(title="PC1 vs PC2 Scatter", template="plotly_dark", plot_bgcolor="#161B22", paper_bgcolor="#161B22", height=240, margin=dict(l=0, r=0, t=30, b=0))
-            st.plotly_chart(fig_pca, use_container_width=True)
-            st.bar_chart(pd.DataFrame(var_ratio, index=[f"PC{i+1}" for i in range(len(var_ratio))], columns=["Explained Variance"]), height=150)
-        else:
-            st.info("PCA module disabled via sidebar toggle.")
+                fig_pca = go.Figure(data=go.Scatter(x=components_pca[:,0], y=components_pca[:,1], mode='markers', marker=dict(color=PRIMARY)))
+                fig_pca.update_layout(title="PC1 vs PC2 Scatter", template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=220, margin=dict(l=0, r=0, t=30, b=0))
+                st.plotly_chart(fig_pca, use_container_width=True)
+                st.bar_chart(pd.DataFrame(var_ratio, index=[f"PC{i+1}" for i in range(len(var_ratio))], columns=["Explained Variance"]), height=130)
+            else:
+                st.info("PCA module disabled via sidebar toggle.")
 
     row2_col1, row2_col2 = st.columns(2)
 
-    # MODULE 3: LINEAR RETURN REGRESSION & RESIDUAL FIT
+    # MODULE 3: LINEAR RETURN REGRESSION & RESIDUAL FIT (COLLAPSIBLE ACCORDION)
     with row2_col1:
-        st.markdown("### LINEAR RETURN REGRESSION & RESIDUAL FIT")
-        st.markdown("Scatter representation of daily log returns against market index with fitted OLS trendline and residual error dispersion.")
+        with st.expander("### LINEAR RETURN REGRESSION & RESIDUAL FIT (Click to Expand)", expanded=True):
+            if show_reg:
+                market_ret, asset_ret, fitted, residuals, reg_lb_pval = run_regression(df)
+                st.caption(f"Residual White Noise Ljung-Box p-val: `{reg_lb_pval:.3f}`")
 
-        if show_reg:
-            market_ret, asset_ret, fitted, residuals = run_regression(df)
-            fig_reg = go.Figure()
-            fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=asset_ret.flatten(), mode='markers', name="Returns", marker=dict(color=SIGNAL)))
-            fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=fitted.flatten(), mode='lines', name="Fitted OLS Line", line=dict(color=PRIMARY)))
-            fig_reg.update_layout(title="Asset Returns vs Market Returns", template="plotly_dark", plot_bgcolor="#161B22", paper_bgcolor="#161B22", height=200, margin=dict(l=0, r=0, t=30, b=0))
-            st.plotly_chart(fig_reg, use_container_width=True)
+                fig_reg = go.Figure()
+                fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=asset_ret.flatten(), mode='markers', name="Returns", marker=dict(color=SIGNAL)))
+                fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=fitted.flatten(), mode='lines', name="Fitted OLS Line", line=dict(color=PRIMARY)))
+                fig_reg.update_layout(title="Asset vs Market Returns", template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=190, margin=dict(l=0, r=0, t=30, b=0))
+                st.plotly_chart(fig_reg, use_container_width=True)
 
-            fig_res = go.Figure(data=go.Scatter(x=fitted.flatten(), y=residuals.flatten(), mode='markers', marker=dict(color='gray')))
-            fig_res.update_layout(title="Residuals vs Fitted (Homoscedasticity)", template="plotly_dark", plot_bgcolor="#161B22", paper_bgcolor="#161B22", height=180, margin=dict(l=0, r=0, t=30, b=0))
-            st.plotly_chart(fig_res, use_container_width=True)
-        else:
-            st.info("Regression module disabled via sidebar toggle.")
+                fig_res = go.Figure(data=go.Scatter(x=fitted.flatten(), y=residuals.flatten(), mode='markers', marker=dict(color='gray')))
+                fig_res.update_layout(title="Residuals vs Fitted", template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=160, margin=dict(l=0, r=0, t=30, b=0))
+                st.plotly_chart(fig_res, use_container_width=True)
+            else:
+                st.info("Regression module disabled via sidebar toggle.")
 
-    # MODULE 4: GARCH VOLATILITY & MONTE CARLO ENVELOPE
+    # MODULE 4: GARCH VOLATILITY & ENHANCED MONTE CARLO ENVELOPE
     with row2_col2:
         st.markdown("### GARCH VOLATILITY & MONTE CARLO ENVELOPE")
-        st.markdown("Time-varying volatility clusters and future probability distribution envelope under Geometric Brownian Motion.")
-
         if show_garch_mc:
             rolling_vol = df['Close'].pct_change().rolling(21).std() * np.sqrt(252)
-            sims, median, upper, lower, bullish_p, bearish_p = compute_monte_carlo(current_price, current_vol)
+            sims, median, p25, p75, upper, lower, bullish_p, bearish_p = compute_monte_carlo(current_price, current_vol)
 
             p_col1, p_col2 = st.columns(2)
-            p_col1.metric("Monte Carlo Bullish Probability", f"{bullish_p:.1f}%")
-            p_col2.metric("Monte Carlo Bearish Probability", f"{bearish_p:.1f}%")
+            p_col1.metric("MC Bullish Probability", f"{bullish_p:.1f}%")
+            p_col2.metric("MC Bearish Probability", f"{bearish_p:.1f}%")
 
             fig_mc = go.Figure()
             for i in range(100):
-                fig_mc.add_trace(go.Scatter(y=sims[:, i], mode='lines', line=dict(color='rgba(255, 215, 0, 0.05)'), showlegend=False))
-            fig_mc.add_trace(go.Scatter(y=median, mode='lines', line=dict(color=SIGNAL, width=2), name="Median Path"))
-            fig_mc.add_trace(go.Scatter(y=upper, mode='lines', line=dict(color='red', dash='dash'), name="+2σ Channel"))
-            fig_mc.add_trace(go.Scatter(y=lower, mode='lines', line=dict(color='red', dash='dash'), name="-2σ Channel"))
-            fig_mc.update_layout(title="30-Step Forward Monte Carlo Paths", template="plotly_dark", plot_bgcolor="#161B22", paper_bgcolor="#161B22", height=240, margin=dict(l=0, r=0, t=30, b=0))
+                fig_mc.add_trace(go.Scatter(y=sims[:, i], mode='lines', line=dict(color='rgba(255, 215, 0, 0.03)'), showlegend=False))
+            fig_mc.add_trace(go.Scatter(y=median, mode='lines', line=dict(color=SIGNAL, width=2), name="Median (50th)"))
+            fig_mc.add_trace(go.Scatter(y=p75, mode='lines', line=dict(color='rgba(0, 229, 255, 0.6)', dash='dot'), name="75th Percentile"))
+            fig_mc.add_trace(go.Scatter(y=p25, mode='lines', line=dict(color='rgba(255, 64, 129, 0.6)', dash='dot'), name="25th Percentile"))
+            fig_mc.add_trace(go.Scatter(y=upper, mode='lines', line=dict(color='red', dash='dash'), name="+2σ Upper"))
+            fig_mc.add_trace(go.Scatter(y=lower, mode='lines', line=dict(color='red', dash='dash'), name="-2σ Lower"))
+            fig_mc.update_layout(title="30-Step Forward Probabilistic Density Paths", template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=270, margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig_mc, use_container_width=True)
         else:
             st.info("GARCH/Monte Carlo module disabled via sidebar toggle.")

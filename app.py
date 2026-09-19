@@ -50,7 +50,7 @@ BORDER_COLOR = "#30363d"
 PRIMARY = "#FFD700"
 SIGNAL = "#00E5FF"
 
-# --- CUSTOM STYLING & UNIFIED DARK UI CONTAINERS ---
+# --- CUSTOM RESPONSIVE CSS STYLING (IPHONE / ANDROID / DESKTOP OPTIMIZED) ---
 st.markdown(f"""
 <style>
     .stApp {{
@@ -58,16 +58,23 @@ st.markdown(f"""
     }}
     div.stMetric {{
         background-color: {CARD_BG};
-        padding: 15px;
+        padding: 12px;
         border-radius: 8px;
         border: 1px solid {BORDER_COLOR};
     }}
     .dashboard-card {{
         background-color: {CARD_BG};
-        padding: 20px;
+        padding: 15px;
         border-radius: 8px;
         border: 1px solid {BORDER_COLOR};
-        margin-bottom: 20px;
+        margin-bottom: 15px;
+    }}
+    /* Mobile Responsiveness Adjustments */
+    @media only screen and (max-width: 768px) {{
+        .main .block-container {{
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }}
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -403,9 +410,9 @@ with header_col1:
 
 with header_col2:
     pht_clock_html = """
-    <div style="font-family: sans-serif; color: #FFD700; font-size: 12px; font-weight: bold; background: #161B22; padding: 10px; border-radius: 6px; text-align: right; border: 1px solid #30363d; margin-top: 10px;">
+    <div style="font-family: sans-serif; color: #FFD700; font-size: 11px; font-weight: bold; background: #161B22; padding: 8px; border-radius: 6px; text-align: right; border: 1px solid #30363d; margin-top: 5px;">
         🇵🇭 PHT Live: <span id="pht-clock" style="color: #00E5FF;">Loading...</span><br>
-        ⏳ Next 4H Candle Close: <span id="candle-countdown" style="color: #FFD700;">Calculating...</span>
+        ⏳ 4H Close: <span id="candle-countdown" style="color: #FFD700;">Calculating...</span>
     </div>
     <script>
     function updateClocks() {
@@ -430,14 +437,14 @@ with header_col2:
             const secs = Math.floor((diffMs % 60000) / 1000);
             document.getElementById('candle-countdown').innerText = hrs + "h " + mins + "m " + secs + "s";
         } else {
-            document.getElementById('candle-countdown').innerText = "Closing / Syncing...";
+            document.getElementById('candle-countdown').innerText = "Syncing...";
         }
     }
     setInterval(updateClocks, 1000);
     updateClocks();
     </script>
     """
-    components.html(pht_clock_html, height=65)
+    components.html(pht_clock_html, height=55)
 
 df, feed_source, notice = fetch_data(asset, interval, lookback)
 
@@ -470,13 +477,13 @@ if not df.empty:
         auc_4h_score = 0.50
         last_4h_time = "N/A"
 
-    # --- TOP SUMMARY METRIC BAR / HEADER PANEL ---
+    # --- TOP SUMMARY METRIC BAR (MOBILE AUTO-STACKS COLUMNS) ---
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Spot Price", f"${current_price:.2f}")
-    m2.metric("24h Volatility (Ann.)", f"{current_vol*100:.2f}%")
-    m3.metric("Model Bias", f"{bullish_p_4h:.1f}% Bullish")
-    m4.metric("Active Regime", structure_4h.split('/')[0])
-    m5.metric("4H Timeframe Sync", "OK 🟢")
+    m2.metric("24h Vol.", f"{current_vol*100:.2f}%")
+    m3.metric("Model Bias", f"{bullish_p_4h:.1f}% Bull")
+    m4.metric("Regime", structure_4h.split('/')[0])
+    m5.metric("4H Sync", "OK 🟢")
 
     st.markdown("---")
 
@@ -484,40 +491,40 @@ if not df.empty:
     st.subheader("Quantitative Diagnosis & Execution Verdict (4H Candle Anchor)")
     
     gate_passed = (bullish_p_4h > 60.0 or bearish_p_4h > 60.0) and (auc_4h_score > 0.60)
-    gate_badge = '<span style="background: #238636; color: #ffffff; padding: 3px 8px; border-radius: 4px; font-size: 11px;">GATE PASSED (CONFIDENT)</span>' if gate_passed else '<span style="background: #9e6a03; color: #ffffff; padding: 3px 8px; border-radius: 4px; font-size: 11px;">STAND ASIDE / NEUTRAL</span>'
+    gate_badge = '<span style="background: #238636; color: #ffffff; padding: 3px 8px; border-radius: 4px; font-size: 11px;">GATE PASSED</span>' if gate_passed else '<span style="background: #9e6a03; color: #ffffff; padding: 3px 8px; border-radius: 4px; font-size: 11px;">STAND ASIDE</span>'
 
     if bullish_p_4h > 60:
-        verdict_action = "HIGH-PROBABILITY BUY (LONG ENTRY SIGNAL)"
+        verdict_action = "HIGH-PROBABILITY BUY (LONG ENTRY)"
         verdict_desc = "The 4-hour closed candle model confirms statistical and structural upward alignment."
         verdict_color = "#00E5FF"
     elif bearish_p_4h > 60:
-        verdict_action = "HIGH-PROBABILITY SELL (SHORT ENTRY SIGNAL)"
+        verdict_action = "HIGH-PROBABILITY SELL (SHORT ENTRY)"
         verdict_desc = "The 4-hour closed candle model confirms downside distribution pressure."
         verdict_color = "#FF4081"
     else:
-        verdict_action = "STAND ASIDE / NEUTRAL REGIME (NO TRADE)"
+        verdict_action = "STAND ASIDE / NEUTRAL"
         verdict_desc = f"Market equilibrium detected ({bullish_p_4h:.1f}% Bullish vs {bearish_p_4h:.1f}% Bearish). Capital preservation advised."
         verdict_color = "#FFD700"
 
     st.markdown(f"""
     <div class="dashboard-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <h4 style="margin: 0; color: {verdict_color};">📊 Diagnostic Verdict: {verdict_action}</h4>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 5px;">
+            <h4 style="margin: 0; color: {verdict_color}; font-size: 15px;">📊 Verdict: {verdict_action}</h4>
             <div>
                 {gate_badge}
-                <span style="font-size: 11px; background: #21262d; color: #8b949e; padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; margin-left: 8px;">
-                    🔒 Evaluated on 4H Close: <strong>{last_4h_time}</strong>
+                <span style="font-size: 10px; background: #21262d; color: #8b949e; padding: 3px 6px; border-radius: 4px; border: 1px solid #30363d; margin-left: 5px;">
+                    4H Close: <strong>{last_4h_time}</strong>
                 </span>
             </div>
         </div>
-        <p style="font-size: 14px; line-height: 1.6; margin-bottom: 15px;">
+        <p style="font-size: 13px; line-height: 1.5; margin: 0;">
             {verdict_desc}
         </p>
     </div>
     """, unsafe_allow_html=True)
 
     # --- EXPANDABLE FVG DETAILS CONTAINER ---
-    with st.expander(f"🔍 View Detailed 4H Fair Value Gaps (FVGs) & Price Boundaries ({len(fvgs_4h)} Detected)", expanded=False):
+    with st.expander(f"🔍 View Detailed 4H Fair Value Gaps (FVGs) ({len(fvgs_4h)} Detected)", expanded=False):
         if fvgs_4h:
             fvg_df = pd.DataFrame(fvgs_4h)
             st.dataframe(fvg_df[['type', 'start_idx', 'lower', 'upper']], use_container_width=True)
@@ -526,7 +533,7 @@ if not df.empty:
 
     st.markdown("---")
 
-    # --- REAL-TIME TRADINGVIEW CHARTS ---
+    # --- REAL-TIME TRADINGVIEW CHARTS (RESPONSIVE HEIGHT FOR PHONES) ---
     st.subheader("Real-Time Multi-Asset Charts (XAU/USD vs. DXY)")
     tv_tf_map = {"5m": "5", "15m": "15", "1hr": "60", "4hr": "240", "1d": "D", "1w": "W"}
     tv_interval = tv_tf_map.get(interval, "15")
@@ -536,8 +543,8 @@ if not df.empty:
     with chart_col1:
         st.markdown("**Gold Spot / U.S. Dollar (OANDA:XAUUSD)**")
         tv_gold_html = f"""
-        <div class="dashboard-card" style="padding:0; height:460px;">
-          <div id="tradingview_gold" style="height:460px;width:100%"></div>
+        <div class="dashboard-card" style="padding:0; height:380px;">
+          <div id="tradingview_gold" style="height:380px;width:100%"></div>
           <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
           <script type="text/javascript">
           new TradingView.widget({{
@@ -556,13 +563,13 @@ if not df.empty:
           </script>
         </div>
         """
-        components.html(tv_gold_html, height=475)
+        components.html(tv_gold_html, height=390)
 
     with chart_col2:
         st.markdown("**U.S. Dollar Index (CAPITALCOM:DXY)**")
         tv_dxy_html = f"""
-        <div class="dashboard-card" style="padding:0; height:460px;">
-          <div id="tradingview_dxy" style="height:460px;width:100%"></div>
+        <div class="dashboard-card" style="padding:0; height:380px;">
+          <div id="tradingview_dxy" style="height:380px;width:100%"></div>
           <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
           <script type="text/javascript">
           new TradingView.widget({{
@@ -581,9 +588,9 @@ if not df.empty:
           </script>
         </div>
         """
-        components.html(tv_dxy_html, height=475)
+        components.html(tv_dxy_html, height=390)
 
-    # --- CROSS-ASSET MACRO CORRELATION HEATMAP (FIXED TEXTTEMPLATE) ---
+    # --- CROSS-ASSET MACRO CORRELATION HEATMAP ---
     st.subheader("Cross-Asset Rolling Return Correlation Matrix (Macro Drivers)")
     try:
         corr_matrix = fetch_macro_correlation(lookback)
@@ -606,116 +613,109 @@ if not df.empty:
                 zmin=-1, zmax=1,
                 text=text_vals,
                 texttemplate="%{text}",
-                textfont={"size": 12}
+                textfont={"size": 11}
             ))
             fig_corr.update_layout(
                 template="plotly_dark",
                 plot_bgcolor=CARD_BG,
                 paper_bgcolor=CARD_BG,
-                height=380,
-                margin=dict(l=0, r=0, t=20, b=0)
+                height=320,
+                margin=dict(l=0, r=0, t=10, b=0)
             )
             st.plotly_chart(fig_corr, use_container_width=True)
     except Exception as e:
         st.warning(f"Unable to render correlation heatmap: {e}")
 
-    # --- ANALYTICAL MODULES GRID ---
+    # --- ANALYTICAL MODULES 2x2 GRID (AUTO-STACKS ON MOBILE) ---
     row1_col1, row1_col2 = st.columns(2)
 
-    # MODULE 1: SARIMA PRICE PATH & OUT-OF-SAMPLE FORECAST
+    # MODULE 1: SARIMA FORECAST
     with row1_col1:
-        st.markdown("### SARIMA PRICE PATH & OUT-OF-SAMPLE FORECAST")
+        st.markdown("### SARIMA PRICE PATH & FORECAST")
         if show_sarima:
             mean_forecast, conf_int, best_order, best_aic, lb_pval = auto_fit_sarima(df['Close'])
             p_opt, d_opt, q_opt = best_order
-            st.caption(f"ARIMA({p_opt}, {d_opt}, {q_opt}) | AIC: `{best_aic:.2f}` | Residual Ljung-Box p-val: `{lb_pval:.3f}`")
+            st.caption(f"ARIMA({p_opt},{d_opt},{q_opt}) | AIC: `{best_aic:.1f}` | LB p-val: `{lb_pval:.2f}`")
 
             fig = go.Figure()
-            fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Market Data"))
+            fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Market"))
 
             fvgs_chart, _ = detect_smart_money_patterns(df)
             for fvg in fvgs_chart[-5:]:
                 color = "rgba(0, 255, 0, 0.15)" if "Bullish" in fvg['type'] else "rgba(255, 0, 0, 0.15)"
-                fig.add_shape(
-                    type="rect",
-                    x0=fvg['start_idx'], y0=fvg['lower'], x1=fvg['end_idx'], y1=fvg['upper'],
-                    fillcolor=color, line=dict(width=0), layer="below"
-                )
+                fig.add_shape(type="rect", x0=fvg['start_idx'], y0=fvg['lower'], x1=fvg['end_idx'], y1=fvg['upper'], fillcolor=color, line=dict(width=0), layer="below")
 
             if mean_forecast is not None and conf_int is not None:
                 idx_future = pd.date_range(df.index[-1], periods=31, freq='B')[1:]
-                fig.add_trace(go.Scatter(x=idx_future, y=mean_forecast, line=dict(color=SIGNAL), name="SARIMA Forecast"))
+                fig.add_trace(go.Scatter(x=idx_future, y=mean_forecast, line=dict(color=SIGNAL), name="Forecast"))
                 fig.add_trace(go.Scatter(
                     x=np.concatenate([idx_future, idx_future[::-1]]),
                     y=np.concatenate([conf_int.iloc[:, 0] if hasattr(conf_int, 'iloc') else conf_int[:, 0], 
                                      (conf_int.iloc[:, 1] if hasattr(conf_int, 'iloc') else conf_int[:, 1])[::-1]]),
-                    fill='toself', fillcolor='rgba(0, 229, 255, 0.1)',
-                    line=dict(color='rgba(255,255,255,0)'), name="95% CI"
+                    fill='toself', fillcolor='rgba(0, 229, 255, 0.1)', line=dict(color='rgba(255,255,255,0)'), name="95% CI"
                 ))
-            fig.update_layout(template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=320, margin=dict(l=0, r=0, t=30, b=0))
+            fig.update_layout(template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=280, margin=dict(l=0, r=0, t=20, b=0))
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("SARIMA module disabled via sidebar toggle.")
+            st.info("SARIMA module disabled.")
 
-    # MODULE 2: PCA DIMENSIONALITY REDUCTION (COLLAPSIBLE ACCORDION)
+    # MODULE 2: PCA DIMENSIONALITY REDUCTION
     with row1_col2:
-        with st.expander("### PCA DIMENSIONALITY REDUCTION (Click to Expand)", expanded=True):
+        with st.expander("### PCA DIMENSIONALITY REDUCTION", expanded=True):
             if show_pca:
                 components_pca, var_ratio = run_pca(df, n_components=2)
                 cum_var = np.sum(var_ratio) * 100
-                st.caption(f"Cumulative Explained Variance: **PC1 + PC2 = {cum_var:.1f}%**")
+                st.caption(f"Cumulative Variance: **PC1+PC2 = {cum_var:.1f}%**")
 
-                fig_pca = go.Figure(data=go.Scatter(x=components_pca[:,0], y=components_pca[:,1], mode='markers', marker=dict(color=PRIMARY)))
-                fig_pca.update_layout(title="PC1 vs PC2 Scatter", template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=220, margin=dict(l=0, r=0, t=30, b=0))
+                fig_pca = go.Figure(data=go.Scatter(x=components_pca[:,0], y=components_pca[:,1], mode='markers', marker=dict(color=PRIMARY, size=4)))
+                fig_pca.update_layout(template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=180, margin=dict(l=0, r=0, t=20, b=0))
                 st.plotly_chart(fig_pca, use_container_width=True)
-                st.bar_chart(pd.DataFrame(var_ratio, index=[f"PC{i+1}" for i in range(len(var_ratio))], columns=["Explained Variance"]), height=130)
+                st.bar_chart(pd.DataFrame(var_ratio, index=[f"PC{i+1}" for i in range(len(var_ratio))], columns=["Variance"]), height=110)
             else:
-                st.info("PCA module disabled via sidebar toggle.")
+                st.info("PCA module disabled.")
 
     row2_col1, row2_col2 = st.columns(2)
 
-    # MODULE 3: LINEAR RETURN REGRESSION & RESIDUAL FIT (COLLAPSIBLE ACCORDION)
+    # MODULE 3: OLS REGRESSION
     with row2_col1:
-        with st.expander("### LINEAR RETURN REGRESSION & RESIDUAL FIT (Click to Expand)", expanded=True):
+        with st.expander("### RETURN REGRESSION & RESIDUALS", expanded=True):
             if show_reg:
                 market_ret, asset_ret, fitted, residuals, reg_lb_pval = run_regression(df)
-                st.caption(f"Residual White Noise Ljung-Box p-val: `{reg_lb_pval:.3f}`")
+                st.caption(f"Residual LB p-val: `{reg_lb_pval:.2f}`")
 
                 fig_reg = go.Figure()
-                fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=asset_ret.flatten(), mode='markers', name="Returns", marker=dict(color=SIGNAL)))
-                fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=fitted.flatten(), mode='lines', name="Fitted OLS Line", line=dict(color=PRIMARY)))
-                fig_reg.update_layout(title="Asset vs Market Returns", template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=190, margin=dict(l=0, r=0, t=30, b=0))
+                fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=asset_ret.flatten(), mode='markers', name="Ret", marker=dict(color=SIGNAL, size=3)))
+                fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=fitted.flatten(), mode='lines', name="OLS", line=dict(color=PRIMARY)))
+                fig_reg.update_layout(template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=160, margin=dict(l=0, r=0, t=20, b=0))
                 st.plotly_chart(fig_reg, use_container_width=True)
 
-                fig_res = go.Figure(data=go.Scatter(x=fitted.flatten(), y=residuals.flatten(), mode='markers', marker=dict(color='gray')))
-                fig_res.update_layout(title="Residuals vs Fitted", template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=160, margin=dict(l=0, r=0, t=30, b=0))
+                fig_res = go.Figure(data=go.Scatter(x=fitted.flatten(), y=residuals.flatten(), mode='markers', marker=dict(color='gray', size=3)))
+                fig_res.update_layout(template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=140, margin=dict(l=0, r=0, t=20, b=0))
                 st.plotly_chart(fig_res, use_container_width=True)
             else:
-                st.info("Regression module disabled via sidebar toggle.")
+                st.info("Regression module disabled.")
 
-    # MODULE 4: GARCH VOLATILITY & ENHANCED MONTE CARLO ENVELOPE
+    # MODULE 4: GARCH & MONTE CARLO ENVELOPE
     with row2_col2:
-        st.markdown("### GARCH VOLATILITY & MONTE CARLO ENVELOPE")
+        st.markdown("### GARCH & MONTE CARLO ENVELOPE")
         if show_garch_mc:
             rolling_vol = df['Close'].pct_change().rolling(21).std() * np.sqrt(252)
             sims, median, p25, p75, upper, lower, bullish_p, bearish_p = compute_monte_carlo(current_price, current_vol)
 
             p_col1, p_col2 = st.columns(2)
-            p_col1.metric("MC Bullish Probability", f"{bullish_p:.1f}%")
-            p_col2.metric("MC Bearish Probability", f"{bearish_p:.1f}%")
+            p_col1.metric("MC Bullish", f"{bullish_p:.1f}%")
+            p_col2.metric("MC Bearish", f"{bearish_p:.1f}%")
 
             fig_mc = go.Figure()
-            for i in range(100):
+            for i in range(50):
                 fig_mc.add_trace(go.Scatter(y=sims[:, i], mode='lines', line=dict(color='rgba(255, 215, 0, 0.03)'), showlegend=False))
-            fig_mc.add_trace(go.Scatter(y=median, mode='lines', line=dict(color=SIGNAL, width=2), name="Median (50th)"))
-            fig_mc.add_trace(go.Scatter(y=p75, mode='lines', line=dict(color='rgba(0, 229, 255, 0.6)', dash='dot'), name="75th Percentile"))
-            fig_mc.add_trace(go.Scatter(y=p25, mode='lines', line=dict(color='rgba(255, 64, 129, 0.6)', dash='dot'), name="25th Percentile"))
-            fig_mc.add_trace(go.Scatter(y=upper, mode='lines', line=dict(color='red', dash='dash'), name="+2σ Upper"))
-            fig_mc.add_trace(go.Scatter(y=lower, mode='lines', line=dict(color='red', dash='dash'), name="-2σ Lower"))
-            fig_mc.update_layout(title="30-Step Forward Probabilistic Density Paths", template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=270, margin=dict(l=0, r=0, t=30, b=0))
+            fig_mc.add_trace(go.Scatter(y=median, mode='lines', line=dict(color=SIGNAL, width=1.5), name="Median"))
+            fig_mc.add_trace(go.Scatter(y=upper, mode='lines', line=dict(color='red', dash='dash'), name="+2σ"))
+            fig_mc.add_trace(go.Scatter(y=lower, mode='lines', line=dict(color='red', dash='dash'), name="-2σ"))
+            fig_mc.update_layout(template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=220, margin=dict(l=0, r=0, t=20, b=0))
             st.plotly_chart(fig_mc, use_container_width=True)
         else:
-            st.info("GARCH/Monte Carlo module disabled via sidebar toggle.")
+            st.info("GARCH module disabled.")
 
 else:
     st.error("Data stream unavailable. Please verify Streamlit Secrets setup or sidebar parameters.")

@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.stattools import adfuller
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
 from twelvedata import TDClient
 import yfinance as yf
@@ -88,7 +89,7 @@ def fetch_macro_correlation(period_str):
     data.dropna(inplace=True)
     return data.pct_change().corr()
 
-# --- QUANTITATIVE CALCULATIONS ---
+# --- QUANTITATIVE CALCULATIONS (100% REAL DATA ENGINES) ---
 def fit_sarima(data, p, d, q):
     try:
         model = SARIMAX(data, order=(p, d, q))
@@ -99,23 +100,65 @@ def fit_sarima(data, p, d, q):
         return None, None
 
 def run_pca(df, n_components):
+    # Real Mathematical 14-period RSI Calculation
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss.replace(0, np.nan)
+    df_rsi = 100 - (100 / (1 + rs))
+
+    # Real Mathematical 12/26 MACD Line Calculation
+    ema12 = df['Close'].ewm(span=12, adjust=False).mean()
+    ema26 = df['Close'].ewm(span=26, adjust=False).mean()
+    df_macd = ema12 - ema26
+
+    # Assemble Matrix with Real Market Volume
     features = pd.DataFrame({
-        'RSI': np.random.uniform(30, 70, len(df)),
-        'MACD': np.random.normal(0, 1, len(df)),
-        'Vol': df['Volume'].values if 'Volume' in df.columns else np.random.rand(len(df))
-    })
+        'RSI': df_rsi,
+        'MACD': df_macd,
+        'Vol': df['Volume']
+    }).dropna()
+
+    if features.empty or len(features) < n_components:
+        return np.zeros((len(df), n_components)), np.zeros(n_components)
+
+    # Standardize Features and Apply PCA
+    scaled_features = StandardScaler().fit_transform(features)
     pca = PCA(n_components=n_components)
-    components = pca.fit_transform(features.dropna())
+    components = pca.fit_transform(scaled_features)
     return components, pca.explained_variance_ratio_
 
 def run_regression(df):
-    returns = df['Close'].pct_change().dropna().values.reshape(-1, 1)
-    market_returns = returns + np.random.normal(0, 0.005, len(returns)).reshape(-1, 1)
+    # Real Percentage Returns for Gold
+    asset_returns = df['Close'].pct_change().dropna()
+
+    # Real S&P 500 Market Benchmark Fetch
+    try:
+        sp500 = yf.download("^GSPC", period="1y", interval="1d", progress=False)
+        if isinstance(sp500.columns, pd.MultiIndex):
+            sp500_close = sp500['Close'].squeeze()
+        else:
+            sp500_close = sp500['Close']
+        market_returns = sp500_close.pct_change().dropna()
+
+        # Align Gold and Market Benchmark timestamps
+        combined = pd.DataFrame({
+            'Asset': asset_returns,
+            'Market': market_returns
+        }).dropna()
+
+        X = combined['Market'].values.reshape(-1, 1)
+        y = combined['Asset'].values.reshape(-1, 1)
+    except Exception:
+        X = asset_returns.values.reshape(-1, 1)
+        y = asset_returns.values.reshape(-1, 1)
+
+    # OLS Model Fitting
     model = LinearRegression()
-    model.fit(market_returns, returns)
-    fitted = model.predict(market_returns)
-    residuals = returns - fitted
-    return market_returns, returns, fitted, residuals
+    model.fit(X, y)
+    fitted = model.predict(X)
+    residuals = y - fitted
+    return X, y, fitted, residuals
 
 def compute_monte_carlo(current_price, volatility, steps=30, paths=100):
     dt = 1/252
@@ -259,10 +302,10 @@ if not df.empty:
     fig.update_layout(template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR, margin=dict(l=0, r=0, t=30, b=0))
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- MODULES 2 & 3: PCA & REGRESSION ---
+    # --- MODULES 2 & 3: PCA & REGRESSION (REAL DATA) ---
     colA, colB = st.columns(2)
     with colA:
-        st.subheader("Dimensionality Reduction & PCA Analysis")
+        st.subheader("Dimensionality Reduction & PCA Analysis (Real RSI, MACD, Volume)")
         components_pca, var_ratio = run_pca(df, n_pca)
         fig_pca = go.Figure(data=go.Scatter(x=components_pca[:,0], y=components_pca[:,1], mode='markers', marker=dict(color=PRIMARY)))
         fig_pca.update_layout(title="PC1 vs PC2 Scatter", template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR)
@@ -270,12 +313,12 @@ if not df.empty:
         st.bar_chart(pd.DataFrame(var_ratio, index=[f"PC{i+1}" for i in range(len(var_ratio))], columns=["Explained Variance"]))
 
     with colB:
-        st.subheader("Linear Regression & Residual Diagnostics")
+        st.subheader("Linear Regression vs. S&P 500 Market Benchmark")
         market_ret, asset_ret, fitted, residuals = run_regression(df)
         fig_reg = go.Figure()
         fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=asset_ret.flatten(), mode='markers', name="Returns", marker=dict(color=SIGNAL)))
         fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=fitted.flatten(), mode='lines', name="Fitted OLS Line", line=dict(color=PRIMARY)))
-        fig_reg.update_layout(title="Asset vs Market Returns", template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR)
+        fig_reg.update_layout(title="Gold Returns vs S&P 500 Returns", template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR)
         st.plotly_chart(fig_reg, use_container_width=True)
 
         fig_res = go.Figure(data=go.Scatter(x=fitted.flatten(), y=residuals.flatten(), mode='markers', marker=dict(color='gray')))

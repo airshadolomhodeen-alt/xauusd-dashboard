@@ -95,30 +95,30 @@ def fetch_data(ticker_symbol, interval_str, lookback_str):
     return df, feed_source, notice
 
 # --- 4H RESAMPLER FOR CLOSED-BAR DIAGNOSTICS (SAFE AGGREGATION DICT) ---
-def get_4h_closed_data(df):
+def get_4h_closed_data(df_input):
     """Resamples input data to 4-Hour bars and returns fully completed/closed bars only."""
-    if df.empty:
-        return df
+    if df_input.empty:
+        return df_input
     
-    df = df.copy()
-    if not isinstance(df.index, pd.DatetimeIndex):
-        df.index = pd.to_datetime(df.index)
-    df = df.sort_index()
+    df_res = df_input.copy()
+    if not isinstance(df_res.index, pd.DatetimeIndex):
+        df_res.index = pd.to_datetime(df_res.index)
+    df_res = df_res.sort_index()
     
     agg_dict = {}
-    if 'Open' in df.columns: agg_dict['Open'] = 'first'
-    if 'High' in df.columns: agg_dict['High'] = 'max'
-    if 'Low' in df.columns: agg_dict['Low'] = 'min'
-    if 'Close' in df.columns: agg_dict['Close'] = 'last'
-    if 'Volume' in df.columns: 
+    if 'Open' in df_res.columns: agg_dict['Open'] = 'first'
+    if 'High' in df_res.columns: agg_dict['High'] = 'max'
+    if 'Low' in df_res.columns: agg_dict['Low'] = 'min'
+    if 'Close' in df_res.columns: agg_dict['Close'] = 'last'
+    if 'Volume' in df_res.columns: 
         agg_dict['Volume'] = 'sum'
-    elif 'volume' in df.columns: 
+    elif 'volume' in df_res.columns: 
         agg_dict['volume'] = 'sum'
 
     try:
-        df_4h = df.resample('4h').agg(agg_dict).dropna()
+        df_4h = df_res.resample('4h').agg(agg_dict).dropna()
     except Exception:
-        df_4h = df.groupby(pd.Grouper(freq='4h')).agg(agg_dict).dropna()
+        df_4h = df_res.groupby(pd.Grouper(freq='4h')).agg(agg_dict).dropna()
 
     # Drop the currently active/unclosed bar to freeze analysis on closed 4H candles
     if len(df_4h) > 1:
@@ -148,29 +148,29 @@ def fetch_macro_correlation(period_str):
     return data.pct_change().corr()
 
 # --- SMART MONEY CONCEPTS: FVG & STRUCTURE DETECTOR ---
-def detect_smart_money_patterns(df):
+def detect_smart_money_patterns(df_input):
     fvgs = []
     market_structure = "Consolidation / Range"
     
-    for i in range(2, len(df)):
-        if df['High'].iloc[i-2] < df['Low'].iloc[i]:
+    for i in range(2, len(df_input)):
+        if df_input['High'].iloc[i-2] < df_input['Low'].iloc[i]:
             fvgs.append({
                 'type': 'Bullish FVG',
-                'start_idx': df.index[i-1],
-                'end_idx': df.index[-1],
-                'lower': df['High'].iloc[i-2],
-                'upper': df['Low'].iloc[i]
+                'start_idx': df_input.index[i-1],
+                'end_idx': df_input.index[-1],
+                'lower': df_input['High'].iloc[i-2],
+                'upper': df_input['Low'].iloc[i]
             })
-        elif df['Low'].iloc[i-2] > df['High'].iloc[i]:
+        elif df_input['Low'].iloc[i-2] > df_input['High'].iloc[i]:
             fvgs.append({
                 'type': 'Bearish FVG',
-                'start_idx': df.index[i-1],
-                'end_idx': df.index[-1],
-                'lower': df['High'].iloc[i],
-                'upper': df['Low'].iloc[i-2]
+                'start_idx': df_input.index[i-1],
+                'end_idx': df_input.index[-1],
+                'lower': df_input['High'].iloc[i],
+                'upper': df_input['Low'].iloc[i-2]
             })
             
-    recent_closes = df['Close'].iloc[-10:]
+    recent_closes = df_input['Close'].iloc[-10:]
     if len(recent_closes) > 0:
         if recent_closes.iloc[-1] > recent_closes.max() * 0.999:
             market_structure = "Bullish Market Structure Shift (MSS) / Break of Structure"
@@ -180,28 +180,28 @@ def detect_smart_money_patterns(df):
     return fvgs, market_structure
 
 # --- 4H CLOSED CANDLE ROC-AUC CLASSIFIER MODULE ---
-def compute_4h_roc_auc(df_4h):
+def compute_4h_roc_auc(df_input):
     """Computes directional ROC-AUC strictly on closed 4H candles."""
-    if df_4h.empty or len(df_4h) < 30:
+    if df_input is None or df_input.empty or len(df_input) < 30:
         return 0.50
     
-    df = df.copy()
-    df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)
-    df['Returns'] = df['Close'].pct_change()
+    df_local = df_input.copy()
+    df_local['Target'] = (df_local['Close'].shift(-1) > df_local['Close']).astype(int)
+    df_local['Returns'] = df_local['Close'].pct_change()
     
-    delta = df['Close'].diff()
+    delta = df_local['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
     rs = gain / loss.replace(0, np.nan)
-    df['RSI'] = 100 - (100 / (1 + rs))
-    df['Volatility'] = df['Close'].pct_change().rolling(14).std()
+    df_local['RSI'] = 100 - (100 / (1 + rs))
+    df_local['Volatility'] = df_local['Close'].pct_change().rolling(14).std()
     
-    df.dropna(inplace=True)
-    if len(df) < 20:
+    df_local.dropna(inplace=True)
+    if len(df_local) < 20:
         return 0.50
         
-    X = df[['Returns', 'RSI', 'Volatility']]
-    y = df['Target']
+    X = df_local[['Returns', 'RSI', 'Volatility']]
+    y = df_local['Target']
     
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
     
@@ -244,23 +244,23 @@ def auto_fit_sarima(data_series):
     else:
         return None, None, (1, 1, 1), 0.0
 
-def run_pca(df, n_components=2):
-    delta = df['Close'].diff()
+def run_pca(df_input, n_components=2):
+    delta = df_input['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss.replace(0, np.nan)
     df_rsi = 100 - (100 / (1 + rs))
 
-    ema12 = df['Close'].ewm(span=12, adjust=False).mean()
-    ema26 = df['Close'].ewm(span=26, adjust=False).mean()
+    ema12 = df_input['Close'].ewm(span=12, adjust=False).mean()
+    ema26 = df_input['Close'].ewm(span=26, adjust=False).mean()
     df_macd = ema12 - ema26
 
-    if 'Volume' in df.columns and df['Volume'].notna().sum() > 0 and (df['Volume'] != 0).any():
-        vol_feature = df['Volume']
-    elif 'volume' in df.columns and df['volume'].notna().sum() > 0 and (df['volume'] != 0).any():
-        vol_feature = df['volume']
+    if 'Volume' in df_input.columns and df_input['Volume'].notna().sum() > 0 and (df_input['Volume'] != 0).any():
+        vol_feature = df_input['Volume']
+    elif 'volume' in df_input.columns and df_input['volume'].notna().sum() > 0 and (df_input['volume'] != 0).any():
+        vol_feature = df_input['volume']
     else:
-        vol_feature = df['High'] - df['Low']
+        vol_feature = df_input['High'] - df_input['Low']
 
     features = pd.DataFrame({
         'RSI': df_rsi,
@@ -269,15 +269,15 @@ def run_pca(df, n_components=2):
     }).dropna()
 
     if features.empty or len(features) < n_components:
-        return np.zeros((len(df), n_components)), np.zeros(n_components)
+        return np.zeros((len(df_input), n_components)), np.zeros(n_components)
 
     scaled_features = StandardScaler().fit_transform(features)
     pca = PCA(n_components=n_components)
     components = pca.fit_transform(scaled_features)
     return components, pca.explained_variance_ratio_
 
-def run_regression(df):
-    asset_returns = df['Close'].pct_change().dropna()
+def run_regression(df_input):
+    asset_returns = df_input['Close'].pct_change().dropna()
     try:
         sp500 = yf.download("^GSPC", period="1y", interval="1d", progress=False)
         if isinstance(sp500.columns, pd.MultiIndex):

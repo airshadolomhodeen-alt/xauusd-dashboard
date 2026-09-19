@@ -97,8 +97,8 @@ def get_4h_closed_data(df):
     if df.empty:
         return df
     
-    # Resample to 4H boundaries
-    df_4h = df.resample('4h').agg({
+    # Resample to 4H boundaries using uppercase '4H' to comply with Pandas specifications
+    df_4h = df.resample('4H').agg({
         'Open': 'first',
         'High': 'max',
         'Low': 'min',

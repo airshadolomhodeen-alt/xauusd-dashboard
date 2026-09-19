@@ -91,13 +91,18 @@ def fetch_data(ticker_symbol, interval_str, lookback_str):
 
     return df, feed_source, notice
 
-# --- 4H RESAMPLER FOR CLOSED-BAR DIAGNOSTICS ---
+# --- 4H RESAMPLER FOR CLOSED-BAR DIAGNOSTICS (ROBUST DATETIME FIX) ---
 def get_4h_closed_data(df):
     """Resamples input data to 4-Hour bars and returns fully completed/closed bars only."""
     if df.empty:
         return df
     
-    # Resample to 4H boundaries using uppercase '4H' to comply with Pandas specifications
+    df = df.copy()
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index)
+    df = df.sort_index()
+    
+    # Resample to 4H boundaries using uppercase '4H'
     df_4h = df.resample('4H').agg({
         'Open': 'first',
         'High': 'max',

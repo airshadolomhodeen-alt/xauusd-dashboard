@@ -91,7 +91,7 @@ def fetch_data(ticker_symbol, interval_str, lookback_str):
 
     return df, feed_source, notice
 
-# --- 4H RESAMPLER FOR CLOSED-BAR DIAGNOSTICS (ROBUST DATETIME FIX) ---
+# --- 4H RESAMPLER FOR CLOSED-BAR DIAGNOSTICS (BULLETPROOF TIMEDELTA/LOWERCASE FIX) ---
 def get_4h_closed_data(df):
     """Resamples input data to 4-Hour bars and returns fully completed/closed bars only."""
     if df.empty:
@@ -102,14 +102,22 @@ def get_4h_closed_data(df):
         df.index = pd.to_datetime(df.index)
     df = df.sort_index()
     
-    # Resample to 4H boundaries using uppercase '4H'
-    df_4h = df.resample('4H').agg({
-        'Open': 'first',
-        'High': 'max',
-        'Low': 'min',
-        'Close': 'last',
-        'Volume': 'sum' if 'Volume' in df.columns else 'first'
-    }).dropna()
+    try:
+        df_4h = df.resample('4h').agg({
+            'Open': 'first',
+            'High': 'max',
+            'Low': 'min',
+            'Close': 'last',
+            'Volume': 'sum' if 'Volume' in df.columns else 'first'
+        }).dropna()
+    except Exception:
+        df_4h = df.groupby(pd.Grouper(freq='4h')).agg({
+            'Open': 'first',
+            'High': 'max',
+            'Low': 'min',
+            'Close': 'last',
+            'Volume': 'sum' if 'Volume' in df.columns else 'first'
+        }).dropna()
 
     # Drop the currently active/unclosed bar to freeze analysis on closed 4H candles
     if len(df_4h) > 1:

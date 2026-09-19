@@ -89,7 +89,7 @@ def fetch_macro_correlation(period_str):
     data.dropna(inplace=True)
     return data.pct_change().corr()
 
-# --- QUANTITATIVE CALCULATIONS (100% REAL DATA ENGINES) ---
+# --- QUANTITATIVE CALCULATIONS ---
 def fit_sarima(data, p, d, q):
     try:
         model = SARIMAX(data, order=(p, d, q))
@@ -112,11 +112,17 @@ def run_pca(df, n_components):
     ema26 = df['Close'].ewm(span=26, adjust=False).mean()
     df_macd = ema12 - ema26
 
-    # Assemble Matrix with Real Market Volume
+    # Safely handle Volume (use real volume if present, otherwise calculate High-Low volatility spread)
+    if 'Volume' in df.columns and df['Volume'].notna().sum() > 0 and (df['Volume'] != 0).any():
+        vol_feature = df['Volume']
+    else:
+        vol_feature = df['High'] - df['Low']
+
+    # Assemble Matrix
     features = pd.DataFrame({
         'RSI': df_rsi,
         'MACD': df_macd,
-        'Vol': df['Volume']
+        'Volatility': vol_feature
     }).dropna()
 
     if features.empty or len(features) < n_components:
@@ -305,7 +311,7 @@ if not df.empty:
     # --- MODULES 2 & 3: PCA & REGRESSION (REAL DATA) ---
     colA, colB = st.columns(2)
     with colA:
-        st.subheader("Dimensionality Reduction & PCA Analysis (Real RSI, MACD, Volume)")
+        st.subheader("Dimensionality Reduction & PCA Analysis (Real Indicators)")
         components_pca, var_ratio = run_pca(df, n_pca)
         fig_pca = go.Figure(data=go.Scatter(x=components_pca[:,0], y=components_pca[:,1], mode='markers', marker=dict(color=PRIMARY)))
         fig_pca.update_layout(title="PC1 vs PC2 Scatter", template="plotly_dark", plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR)

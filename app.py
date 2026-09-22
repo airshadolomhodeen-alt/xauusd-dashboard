@@ -1,20 +1,22 @@
-import streamlit as st
-import streamlit.components.v1 as components
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
+from arch import arch_model
 import concurrent.futures
-from statsmodels.tsa.statespace.sarimax import SARIMAX
-from statsmodels.tsa.stattools import adfuller
-from statsmodels.stats.diagnostic import acorr_ljungbox
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from statsmodels.stats.diagnostic import acorr_ljungbox
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tsa.stattools import adfuller
+import streamlit as st
+import streamlit.components.v1 as components
 from twelvedata import TDClient
 import yfinance as yf
 import warnings
+
 warnings.filterwarnings('ignore')
 
 # --- CONFIGURATION & SECURITY ---
@@ -220,6 +222,24 @@ def detect_smart_money_patterns(df_input):
             market_structure = "Bearish Trend / Change of Character"
 
     return fvgs, market_structure
+
+# --- TRUE GARCH(1,1) CONDITIONAL VOLATILITY MODEL ---
+def compute_true_garch_volatility(price_series):
+    """Computes annualized conditional volatility using the arch library GARCH(1,1)."""
+    returns = price_series.pct_change().dropna() * 100
+    if len(returns) < 30:
+        fallback = price_series.pct_change().rolling(21).std() * np.sqrt(252)
+        return fallback, None
+
+    try:
+        am = arch_model(returns, vol="Garch", p=1, q=1, mean="Zero", dist="normal")
+        results = am.fit(update_freq=0, disp="off")
+        conditional_vol_daily = results.conditional_volatility / 100
+        conditional_vol_annualized = conditional_vol_daily * np.sqrt(252)
+        return conditional_vol_annualized, results
+    except Exception:
+        fallback = price_series.pct_change().rolling(21).std() * np.sqrt(252)
+        return fallback, None
 
 # --- 4H CLOSED CANDLE ROC-AUC CLASSIFIER MODULE ---
 def compute_4h_roc_auc(df_input):
@@ -472,16 +492,23 @@ if not df.empty:
     p_value = adf_result[1]
     
     current_price = float(df['Close'].iloc[-1])
-    rolling_vol_calc = df['Close'].pct_change().rolling(21).std() * np.sqrt(252)
-    current_vol = float(rolling_vol_calc.iloc[-1]) if not np.isnan(rolling_vol_calc.iloc[-1]) else 0.15
+    
+    # --- TRUE GARCH(1,1) VOLATILITY CALCULATION ---
+    garch_vol_series, garch_results = compute_true_garch_volatility(df['Close'])
+    current_vol = float(garch_vol_series.iloc[-1]) if not np.isnan(garch_vol_series.iloc[-1]) else 0.15
+    
+    if garch_results is not None:
+        st.sidebar.success("GARCH(1,1) Vol: Converged 🟢")
+    else:
+        st.sidebar.warning("GARCH(1,1) Vol: Fallback Std 🟡")
     
     # --- 4-HOUR CLOSED CANDLE DIAGNOSTIC ENGINE ---
     df_4h_closed = get_4h_closed_data(df)
     
     if not df_4h_closed.empty:
         price_4h_closed = float(df_4h_closed['Close'].iloc[-1])
-        vol_4h_calc = df_4h_closed['Close'].pct_change().rolling(21).std() * np.sqrt(252)
-        vol_4h = float(vol_4h_calc.iloc[-1]) if not np.isnan(vol_4h_calc.iloc[-1]) else current_vol
+        vol_4h_calc_series, _ = compute_true_garch_volatility(df_4h_closed['Close'])
+        vol_4h = float(vol_4h_calc_series.iloc[-1]) if not np.isnan(vol_4h_calc_series.iloc[-1]) else current_vol
         
         _, _, _, _, _, _, bullish_p_4h, bearish_p_4h = compute_monte_carlo(price_4h_closed, vol_4h)
         fvgs_4h, structure_4h = detect_smart_money_patterns(df_4h_closed)
@@ -496,7 +523,7 @@ if not df.empty:
     # --- TOP SUMMARY METRIC BAR ---
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Spot Price", f"${current_price:.2f}")
-    m2.metric("24h Vol.", f"{current_vol*100:.2f}%")
+    m2.metric("GARCH Vol.", f"{current_vol*100:.2f}%")
     m3.metric("Model Bias", f"{bullish_p_4h:.1f}% Bull")
     m4.metric("4H ROC-AUC", f"{auc_4h_score:.3f}")
     m5.metric("Regime", structure_4h.split('/')[0])
@@ -659,7 +686,6 @@ if not df.empty:
             mean_forecast, conf_int, best_order, best_aic, lb_pval = auto_fit_sarima(df['Close'])
             p_opt, d_opt, q_opt = best_order
             
-            # Secondary metric block above plot
             mc1, mc2 = st.columns(2)
             mc1.metric("SARIMA AIC", f"{best_aic:.1f}")
             mc2.metric("Ljung-Box p-val", f"{lb_pval:.2f}")
@@ -715,7 +741,6 @@ if not df.empty:
             components_pca, var_ratio, pca_features = run_pca(df, n_components=2)
             cum_var = np.sum(var_ratio) * 100
             
-            # Secondary metric block above plot
             pc1_col, pc2_col = st.columns(2)
             pc1_col.metric("PC1 + PC2 Cum. Var.", f"{cum_var:.1f}%")
             pc2_col.metric("Features Analyzed", f"{pca_features.shape[1]}")
@@ -749,7 +774,6 @@ if not df.empty:
         if show_reg:
             market_ret, asset_ret, fitted, residuals, reg_lb_pval = run_regression(df)
             
-            # Secondary metric block above plot
             rc1, rc2 = st.columns(2)
             rc1.metric("Regression Ljung-Box p-val", f"{reg_lb_pval:.2f}")
             rc2.metric("Data Points", f"{len(market_ret)}")
@@ -785,10 +809,8 @@ if not df.empty:
     with row2_col2:
         st.markdown("#### 4. GARCH & Monte Carlo Envelope")
         if show_garch_mc:
-            rolling_vol = df['Close'].pct_change().rolling(21).std() * np.sqrt(252)
             sims, median, p25, p75, upper, lower, bullish_p, bearish_p = compute_monte_carlo(current_price, current_vol)
 
-            # Secondary metric block above plot
             mc_col1, mc_col2 = st.columns(2)
             mc_col1.metric("MC Bullish Probability", f"{bullish_p:.1f}%")
             mc_col2.metric("MC Bearish Probability", f"{bearish_p:.1f}%")
@@ -832,6 +854,36 @@ if not df.empty:
             st.plotly_chart(fig_mc, use_container_width=True)
         else:
             st.info("GARCH module disabled.")
+
+    # --- QUANTITATIVE SUMMARY REPORT SECTION ---
+    st.markdown("---")
+    st.subheader("📋 Quantitative Summary Report & Metrics Export")
+    
+    summary_data = {
+        "Metric Parameter": [
+            "Asset Ticker", "Current Spot Price", "GARCH(1,1) Volatility (Annualized)", 
+            "SARIMA Best AIC", "SARIMA Residual Ljung-Box p-val", "PCA Cumulative Variance (PC1+PC2)", 
+            "OLS Residual Ljung-Box p-val", "4H Model ROC-AUC Score", "Monte Carlo Bullish Probability", "Market Regime Bias"
+        ],
+        "Computed Value": [
+            asset, f"${current_price:.2f}", f"{current_vol*100:.2f}%", 
+            f"{best_aic:.2f}" if show_sarima else "N/A", f"{lb_pval:.3f}" if show_sarima else "N/A", 
+            f"{cum_var:.2f}%" if show_pca else "N/A", f"{reg_lb_pval:.3f}" if show_reg else "N/A", 
+            f"{auc_4h_score:.3f}", f"{bullish_p:.1f}%" if show_garch_mc else "N/A", structure_4h
+        ]
+    }
+    
+    summary_df = pd.DataFrame(summary_data)
+    st.dataframe(summary_df, use_container_width=True)
+    
+    # CSV Download Button
+    csv_data = summary_df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Download Quantitative Summary Report (CSV)",
+        data=csv_data,
+        file_name=f"{asset}_quantitative_summary_report.csv",
+        mime="text/csv"
+    )
 
 else:
     st.error("Data stream unavailable. Please verify Streamlit Secrets setup or sidebar parameters.")

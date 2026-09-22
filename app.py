@@ -44,13 +44,16 @@ def check_password():
 if not check_password():
     st.stop()
 
+# --- DESIGN SYSTEM & COLOR PALETTE ALIGNMENT ---
 BG_COLOR = "#0E1117"
-CARD_BG = "#161B22"
+CARD_BG = "#1E222D"
 BORDER_COLOR = "#30363d"
-PRIMARY = "#FFD700"
-SIGNAL = "#00E5FF"
+PRIMARY_BULLISH = "#00E676"
+PRIMARY_BEARISH = "#FF5252"
+FORECAST_CYAN = "#00B0FF"
+GOLD_ACCENT = "#FFD700"
 
-# --- CUSTOM RESPONSIVE CSS STYLING (IPHONE / ANDROID / DESKTOP OPTIMIZED) ---
+# --- CUSTOM RESPONSIVE CSS STYLING ---
 st.markdown(f"""
 <style>
     .stApp {{
@@ -316,12 +319,12 @@ def run_pca(df_input, n_components=2):
     }).dropna()
 
     if features.empty or len(features) < n_components:
-        return np.zeros((len(df_input), n_components)), np.zeros(n_components)
+        return np.zeros((len(df_input), n_components)), np.zeros(n_components), features
 
     scaled_features = StandardScaler().fit_transform(features)
     pca = PCA(n_components=n_components)
     components = pca.fit_transform(scaled_features)
-    return components, pca.explained_variance_ratio_
+    return components, pca.explained_variance_ratio_, features
 
 def run_regression(df_input):
     asset_returns = df_input['Close'].pct_change().dropna()
@@ -422,37 +425,37 @@ with header_col1:
     st.title("XAU/USD Advanced Quantitative Analytics")
 
 with header_col2:
-    pht_clock_html = """
-    <div style="font-family: sans-serif; color: #FFD700; font-size: 11px; font-weight: bold; background: #161B22; padding: 8px; border-radius: 6px; text-align: right; border: 1px solid #30363d; margin-top: 5px;">
-        🇵🇭 PHT Live: <span id="pht-clock" style="color: #00E5FF;">Loading...</span><br>
-        ⏳ 4H Close: <span id="candle-countdown" style="color: #FFD700;">Calculating...</span>
+    pht_clock_html = f"""
+    <div style="font-family: sans-serif; color: {GOLD_ACCENT}; font-size: 11px; font-weight: bold; background: {CARD_BG}; padding: 8px; border-radius: 6px; text-align: right; border: 1px solid {BORDER_COLOR}; margin-top: 5px;">
+        🇵🇭 PHT Live: <span id="pht-clock" style="color: {FORECAST_CYAN};">Loading...</span><br>
+        ⏳ 4H Close: <span id="candle-countdown" style="color: {GOLD_ACCENT};">Calculating...</span>
     </div>
     <script>
-    function updateClocks() {
+    function updateClocks() {{
         const now = new Date();
-        const options = { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true };
+        const options = {{ timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }};
         document.getElementById('pht-clock').innerText = new Intl.DateTimeFormat('en-US', options).format(now);
         
-        const utcNow = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
+        const utcNow = new Date(now.toLocaleString('en-US', {{ timeZone: 'UTC' }}));
         const currentHour = utcNow.getUTCHours();
         const nextH = Math.floor(currentHour / 4) * 4 + 4;
         const targetUtc = new Date(utcNow);
-        if (nextH >= 24) {
+        if (nextH >= 24) {{
             targetUtc.setUTCDate(targetUtc.getUTCDate() + 1);
             targetUtc.setUTCHours(0, 0, 0, 0);
-        } else {
+        }} else {{
             targetUtc.setUTCHours(nextH, 0, 0, 0);
-        }
+        }}
         const diffMs = targetUtc - utcNow;
-        if (diffMs > 0) {
+        if (diffMs > 0) {{
             const hrs = Math.floor((diffMs % 86400000) / 3600000);
             const mins = Math.floor((diffMs % 3600000) / 60000);
             const secs = Math.floor((diffMs % 60000) / 1000);
             document.getElementById('candle-countdown').innerText = hrs + "h " + mins + "m " + secs + "s";
-        } else {
+        }} else {{
             document.getElementById('candle-countdown').innerText = "Syncing...";
-        }
-    }
+        }}
+    }}
     setInterval(updateClocks, 1000);
     updateClocks();
     </script>
@@ -490,7 +493,7 @@ if not df.empty:
         auc_4h_score = 0.50
         last_4h_time = "N/A"
 
-    # --- TOP SUMMARY METRIC BAR (INCLUDING MODEL ROC-AUC SCORE) ---
+    # --- TOP SUMMARY METRIC BAR ---
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Spot Price", f"${current_price:.2f}")
     m2.metric("24h Vol.", f"{current_vol*100:.2f}%")
@@ -510,15 +513,15 @@ if not df.empty:
     if bullish_p_4h > 60:
         verdict_action = "HIGH-PROBABILITY BUY (LONG ENTRY)"
         verdict_desc = f"The 4-hour closed candle model confirms statistical and structural upward alignment (Model ROC-AUC Score: <code>{auc_4h_score:.3f}</code>)."
-        verdict_color = "#00E5FF"
+        verdict_color = FORECAST_CYAN
     elif bearish_p_4h > 60:
         verdict_action = "HIGH-PROBABILITY SELL (SHORT ENTRY)"
         verdict_desc = f"The 4-hour closed candle model confirms downside distribution pressure (Model ROC-AUC Score: <code>{auc_4h_score:.3f}</code>)."
-        verdict_color = "#FF4081"
+        verdict_color = PRIMARY_BEARISH
     else:
         verdict_action = "STAND ASIDE / NEUTRAL"
         verdict_desc = f"Market equilibrium detected ({bullish_p_4h:.1f}% Bullish vs {bearish_p_4h:.1f}% Bearish | Model ROC-AUC Score: <code>{auc_4h_score:.3f}</code>). Capital preservation advised."
-        verdict_color = "#FFD700"
+        verdict_color = GOLD_ACCENT
 
     st.markdown(f"""
     <div class="dashboard-card">
@@ -526,7 +529,7 @@ if not df.empty:
             <h4 style="margin: 0; color: {verdict_color}; font-size: 15px;">📊 Verdict: {verdict_action}</h4>
             <div>
                 {gate_badge}
-                <span style="font-size: 10px; background: #21262d; color: #8b949e; padding: 3px 6px; border-radius: 4px; border: 1px solid #30363d; margin-left: 5px;">
+                <span style="font-size: 10px; background: {CARD_BG}; color: #8b949e; padding: 3px 6px; border-radius: 4px; border: 1px solid {BORDER_COLOR}; margin-left: 5px;">
                     4H Close: <strong>{last_4h_time}</strong>
                 </span>
             </div>
@@ -569,7 +572,7 @@ if not df.empty:
             "theme": "dark",
             "style": "1",
             "locale": "en",
-            "toolbar_bg": "#161B22",
+            "toolbar_bg": "{CARD_BG}",
             "enable_publishing": false,
             "allow_symbol_change": true,
             "container_id": "tradingview_gold"
@@ -594,7 +597,7 @@ if not df.empty:
             "theme": "dark",
             "style": "1",
             "locale": "en",
-            "toolbar_bg": "#161B22",
+            "toolbar_bg": "{CARD_BG}",
             "enable_publishing": false,
             "allow_symbol_change": true,
             "container_id": "tradingview_dxy"
@@ -627,106 +630,205 @@ if not df.empty:
                 zmin=-1, zmax=1,
                 text=text_vals,
                 texttemplate="%{text}",
-                textfont={"size": 11}
+                textfont={"size": 11},
+                hovertemplate="Pair: %{y} vs %{x}<br>Correlation: %{z:.2f}<extra></extra>"
             ))
             fig_corr.update_layout(
                 template="plotly_dark",
                 plot_bgcolor=CARD_BG,
                 paper_bgcolor=CARD_BG,
                 height=320,
-                margin=dict(l=0, r=0, t=10, b=0)
+                margin=dict(l=0, r=0, t=10, b=0),
+                xaxis=dict(automargin=True, tickangle=0),
+                yaxis=dict(automargin=True)
             )
             st.plotly_chart(fig_corr, use_container_width=True)
     except Exception as e:
         st.warning(f"Unable to render correlation heatmap: {e}")
 
-    # --- ANALYTICAL MODULES 2x2 GRID ---
+    st.markdown("---")
+    st.subheader("Advanced Quantitative Analytics 2x2 Grid")
+
+    # --- STREAMLIT LAYOUT STRUCTURE: 2X2 GRID ---
     row1_col1, row1_col2 = st.columns(2)
 
     # MODULE 1: SARIMA FORECAST
     with row1_col1:
-        st.markdown("### SARIMA PRICE PATH & FORECAST")
+        st.markdown("#### 1. SARIMA Price Path & Forecast")
         if show_sarima:
             mean_forecast, conf_int, best_order, best_aic, lb_pval = auto_fit_sarima(df['Close'])
             p_opt, d_opt, q_opt = best_order
-            st.caption(f"ARIMA({p_opt},{d_opt},{q_opt}) | AIC: `{best_aic:.1f}` | LB p-val: `{lb_pval:.2f}`")
+            
+            # Secondary metric block above plot
+            mc1, mc2 = st.columns(2)
+            mc1.metric("SARIMA AIC", f"{best_aic:.1f}")
+            mc2.metric("Ljung-Box p-val", f"{lb_pval:.2f}")
 
             fig = go.Figure()
-            fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Market"))
+            fig.add_trace(go.Candlestick(
+                x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], 
+                name="Market Price",
+                increasing_line_color=PRIMARY_BULLISH, decreasing_line_color=PRIMARY_BEARISH,
+                hovertemplate="Date: %{x}<br>Open: $\%{open:.2f}<br>High:$%{high:.2f}<br>Low: $\%{low:.2f}<br>Close:$%{close:.2f}<extra></extra>"
+            ))
 
             fvgs_chart, _ = detect_smart_money_patterns(df)
             for fvg in fvgs_chart[-5:]:
-                color = "rgba(0, 255, 0, 0.15)" if "Bullish" in fvg['type'] else "rgba(255, 0, 0, 0.15)"
+                color = "rgba(0, 230, 118, 0.15)" if "Bullish" in fvg['type'] else "rgba(255, 82, 82, 0.15)"
                 fig.add_shape(type="rect", x0=fvg['start_idx'], y0=fvg['lower'], x1=fvg['end_idx'], y1=fvg['upper'], fillcolor=color, line=dict(width=0), layer="below")
 
             if mean_forecast is not None and conf_int is not None:
                 idx_future = pd.date_range(df.index[-1], periods=31, freq='B')[1:]
-                fig.add_trace(go.Scatter(x=idx_future, y=mean_forecast, line=dict(color=SIGNAL), name="Forecast"))
+                fig.add_trace(go.Scatter(
+                    x=idx_future, y=mean_forecast, 
+                    line=dict(color=FORECAST_CYAN, width=2), 
+                    name="Forecast Median",
+                    hovertemplate="Forecast Date: %{x}<br>Expected Price: $%{y:.2f}<extra></extra>"
+                ))
                 fig.add_trace(go.Scatter(
                     x=np.concatenate([idx_future, idx_future[::-1]]),
                     y=np.concatenate([conf_int.iloc[:, 0] if hasattr(conf_int, 'iloc') else conf_int[:, 0], 
                                      (conf_int.iloc[:, 1] if hasattr(conf_int, 'iloc') else conf_int[:, 1])[::-1]]),
-                    fill='toself', fillcolor='rgba(0, 229, 255, 0.1)', line=dict(color='rgba(255,255,255,0)'), name="95% CI"
+                    fill='toself', fillcolor='rgba(0, 176, 255, 0.15)', line=dict(color='rgba(255,255,255,0)'), 
+                    name="95% Confidence Band",
+                    hovertemplate="Confidence Interval Band<extra></extra>"
                 ))
-            fig.update_layout(template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=280, margin=dict(l=0, r=0, t=20, b=0))
+            
+            fig.update_layout(
+                template="plotly_dark", 
+                plot_bgcolor=CARD_BG, 
+                paper_bgcolor=CARD_BG, 
+                height=300, 
+                margin=dict(l=0, r=0, t=10, b=0),
+                xaxis=dict(title="Timestamp / Date", automargin=True, tickangle=0),
+                yaxis=dict(title="Asset Price ($)", automargin=True, tickformat="$.2f"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("SARIMA module disabled.")
 
     # MODULE 2: PCA DIMENSIONALITY REDUCTION
     with row1_col2:
-        with st.expander("### PCA DIMENSIONALITY REDUCTION", expanded=True):
-            if show_pca:
-                components_pca, var_ratio = run_pca(df, n_components=2)
-                cum_var = np.sum(var_ratio) * 100
-                st.caption(f"Cumulative Variance: **PC1+PC2 = {cum_var:.1f}%**")
+        st.markdown("#### 2. PCA Dimensionality Reduction")
+        if show_pca:
+            components_pca, var_ratio, pca_features = run_pca(df, n_components=2)
+            cum_var = np.sum(var_ratio) * 100
+            
+            # Secondary metric block above plot
+            pc1_col, pc2_col = st.columns(2)
+            pc1_col.metric("PC1 + PC2 Cum. Var.", f"{cum_var:.1f}%")
+            pc2_col.metric("Features Analyzed", f"{pca_features.shape[1]}")
 
-                fig_pca = go.Figure(data=go.Scatter(x=components_pca[:,0], y=components_pca[:,1], mode='markers', marker=dict(color=PRIMARY, size=4)))
-                fig_pca.update_layout(template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=180, margin=dict(l=0, r=0, t=20, b=0))
-                st.plotly_chart(fig_pca, use_container_width=True)
-                st.bar_chart(pd.DataFrame(var_ratio, index=[f"PC{i+1}" for i in range(len(var_ratio))], columns=["Variance"]), height=110)
-            else:
-                st.info("PCA module disabled.")
+            fig_pca = go.Figure(data=go.Scatter(
+                x=components_pca[:,0], y=components_pca[:,1], 
+                mode='markers', 
+                marker=dict(color=FORECAST_CYAN, size=6, opacity=0.8, line=dict(width=0.5, color=BORDER_COLOR)),
+                name="PCA Clusters",
+                hovertemplate="PC1: %{x:.2f}<br>PC2: %{y:.2f}<extra></extra>"
+            ))
+            fig_pca.update_layout(
+                template="plotly_dark", 
+                plot_bgcolor=CARD_BG, 
+                paper_bgcolor=CARD_BG, 
+                height=300, 
+                margin=dict(l=0, r=0, t=10, b=0),
+                xaxis=dict(title="Principal Component 1 (PC1)", automargin=True, tickangle=0),
+                yaxis=dict(title="Principal Component 2 (PC2)", automargin=True),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig_pca, use_container_width=True)
+        else:
+            st.info("PCA module disabled.")
 
     row2_col1, row2_col2 = st.columns(2)
 
-    # MODULE 3: OLS REGRESSION
+    # MODULE 3: OLS RETURN REGRESSION & RESIDUALS
     with row2_col1:
-        with st.expander("### RETURN REGRESSION & RESIDUALS", expanded=True):
-            if show_reg:
-                market_ret, asset_ret, fitted, residuals, reg_lb_pval = run_regression(df)
-                st.caption(f"Residual LB p-val: `{reg_lb_pval:.2f}`")
+        st.markdown("#### 3. OLS Return Regression & Residuals")
+        if show_reg:
+            market_ret, asset_ret, fitted, residuals, reg_lb_pval = run_regression(df)
+            
+            # Secondary metric block above plot
+            rc1, rc2 = st.columns(2)
+            rc1.metric("Regression Ljung-Box p-val", f"{reg_lb_pval:.2f}")
+            rc2.metric("Data Points", f"{len(market_ret)}")
 
-                fig_reg = go.Figure()
-                fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=asset_ret.flatten(), mode='markers', name="Ret", marker=dict(color=SIGNAL, size=3)))
-                fig_reg.add_trace(go.Scatter(x=market_ret.flatten(), y=fitted.flatten(), mode='lines', name="OLS", line=dict(color=PRIMARY)))
-                fig_reg.update_layout(template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=160, margin=dict(l=0, r=0, t=20, b=0))
-                st.plotly_chart(fig_reg, use_container_width=True)
-
-                fig_res = go.Figure(data=go.Scatter(x=fitted.flatten(), y=residuals.flatten(), mode='markers', marker=dict(color='gray', size=3)))
-                fig_res.update_layout(template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=140, margin=dict(l=0, r=0, t=20, b=0))
-                st.plotly_chart(fig_res, use_container_width=True)
-            else:
-                st.info("Regression module disabled.")
+            fig_reg = go.Figure()
+            fig_reg.add_trace(go.Scatter(
+                x=market_ret.flatten(), y=asset_ret.flatten(), 
+                mode='markers', name="Actual Returns", 
+                marker=dict(color=PRIMARY_BULLISH, size=4, opacity=0.7),
+                hovertemplate="Independent Variable: %{x:.4f}<br>Asset Return: %{y:.4f}<extra></extra>"
+            ))
+            fig_reg.add_trace(go.Scatter(
+                x=market_ret.flatten(), y=fitted.flatten(), 
+                mode='lines', name="OLS Fit Line", 
+                line=dict(color=FORECAST_CYAN, width=2),
+                hovertemplate="Model Fit: %{y:.4f}<extra></extra>"
+            ))
+            fig_reg.update_layout(
+                template="plotly_dark", 
+                plot_bgcolor=CARD_BG, 
+                paper_bgcolor=CARD_BG, 
+                height=300, 
+                margin=dict(l=0, r=0, t=10, b=0),
+                xaxis=dict(title="Feature Values / Model Factors", automargin=True, tickangle=0, tickformat=".3f"),
+                yaxis=dict(title="Asset Returns", automargin=True, tickformat=".3f"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig_reg, use_container_width=True)
+        else:
+            st.info("Regression module disabled.")
 
     # MODULE 4: GARCH & MONTE CARLO ENVELOPE
     with row2_col2:
-        st.markdown("### GARCH & MONTE CARLO ENVELOPE")
+        st.markdown("#### 4. GARCH & Monte Carlo Envelope")
         if show_garch_mc:
             rolling_vol = df['Close'].pct_change().rolling(21).std() * np.sqrt(252)
             sims, median, p25, p75, upper, lower, bullish_p, bearish_p = compute_monte_carlo(current_price, current_vol)
 
-            p_col1, p_col2 = st.columns(2)
-            p_col1.metric("MC Bullish", f"{bullish_p:.1f}%")
-            p_col2.metric("MC Bearish", f"{bearish_p:.1f}%")
+            # Secondary metric block above plot
+            mc_col1, mc_col2 = st.columns(2)
+            mc_col1.metric("MC Bullish Probability", f"{bullish_p:.1f}%")
+            mc_col2.metric("MC Bearish Probability", f"{bearish_p:.1f}%")
 
             fig_mc = go.Figure()
-            for i in range(50):
-                fig_mc.add_trace(go.Scatter(y=sims[:, i], mode='lines', line=dict(color='rgba(255, 215, 0, 0.03)'), showlegend=False))
-            fig_mc.add_trace(go.Scatter(y=median, mode='lines', line=dict(color=SIGNAL, width=1.5), name="Median"))
-            fig_mc.add_trace(go.Scatter(y=upper, mode='lines', line=dict(color='red', dash='dash'), name="+2σ"))
-            fig_mc.add_trace(go.Scatter(y=lower, mode='lines', line=dict(color='red', dash='dash'), name="-2σ"))
-            fig_mc.update_layout(template="plotly_dark", plot_bgcolor=CARD_BG, paper_bgcolor=CARD_BG, height=220, margin=dict(l=0, r=0, t=20, b=0))
+            for i in range(min(50, sims.shape[1])):
+                fig_mc.add_trace(go.Scatter(
+                    y=sims[:, i], mode='lines', 
+                    line=dict(color='rgba(0, 176, 255, 0.05)', width=1), 
+                    showlegend=False,
+                    hoverinfo='skip'
+                ))
+            fig_mc.add_trace(go.Scatter(
+                y=median, mode='lines', 
+                line=dict(color=FORECAST_CYAN, width=2), 
+                name="Median Forecast",
+                hovertemplate="Step: %{x}<br>Median Price: $%{y:.2f}<extra></extra>"
+            ))
+            fig_mc.add_trace(go.Scatter(
+                y=upper, mode='lines', 
+                line=dict(color=PRIMARY_BEARISH, dash='dash', width=1.5), 
+                name="+2σ Envelope",
+                hovertemplate="Upper Band: $%{y:.2f}<extra></extra>"
+            ))
+            fig_mc.add_trace(go.Scatter(
+                y=lower, mode='lines', 
+                line=dict(color=PRIMARY_BULLISH, dash='dash', width=1.5), 
+                name="-2σ Envelope",
+                hovertemplate="Lower Band: $%{y:.2f}<extra></extra>"
+            ))
+            fig_mc.update_layout(
+                template="plotly_dark", 
+                plot_bgcolor=CARD_BG, 
+                paper_bgcolor=CARD_BG, 
+                height=300, 
+                margin=dict(l=0, r=0, t=10, b=0),
+                xaxis=dict(title="Simulation Steps (Days)", automargin=True, tickangle=0),
+                yaxis=dict(title="Simulated Price ($)", automargin=True, tickformat="$.2f"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
             st.plotly_chart(fig_mc, use_container_width=True)
         else:
             st.info("GARCH module disabled.")

@@ -1,9 +1,9 @@
 streamlit
+arch
 pandas
 numpy
 plotly
-statsmodels
 scikit-learn
+statsmodels
 yfinance
 twelvedata
-requests
